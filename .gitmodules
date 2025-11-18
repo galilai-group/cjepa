@@ -1,0 +1,3 @@
+[submodule "stable-pretraining"]
+	path = stable-pretraining
+	url = https://github.com/rbalestr-lab/stable-pretraining/
