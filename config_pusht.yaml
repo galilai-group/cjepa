@@ -30,17 +30,16 @@ hydra:
 
 wandb:
   enable: false
-  project: dinowm
-  entity: heejeong_nam
+  project: xenoworlds
+  entity: simon-lacoste-julien
 
-dataset_name: clevrer # pusht_expert
+dataset_name: pusht_expert
 # cache_dir: null #${oc.env:SLURM_TMPDIR, null}
 output_model_name: world_model
-training_type: video # options: video, wm
 
 trainer:
   max_epochs: 100
-  # strategy: ddp 
+  strategy: ddp
   devices: auto
   accelerator: gpu
   precision: 16-mixed

@@ -1,3 +1,11 @@
+logs/*
+*.err
+*.out
+environment*.json
+requirements_frozen_*.txt
+lightning_logs/
+wandb/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

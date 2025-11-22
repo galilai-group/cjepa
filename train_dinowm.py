@@ -3,6 +3,7 @@ from pathlib import Path
 import hydra
 import lightning as pl
 import stable_pretraining as spt
+import stable_worldmodel as swm
 import torch
 from lightning.pytorch.callbacks import Callback, ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
@@ -12,7 +13,6 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from transformers import AutoModel
 
-import stable_worldmodel as swm
 
 
 DINO_PATCH_SIZE = 14  # DINO encoder uses 14x14 patches
@@ -43,44 +43,74 @@ def get_data(cfg):
         std = data.std(0).unsqueeze(0)
         return lambda x: (x - mean) / std
 
-    dataset = swm.data.StepsDataset(
-        cfg.dataset_name,
-        num_steps=cfg.n_steps,
-        frameskip=cfg.frameskip,
-        transform=None,
-        cache_dir=cfg.get("cache_dir", None),
-    )
-
+    if cfg.training_type =='wm':
+        dataset = swm.data.StepsDataset(
+            cfg.dataset_name,
+            num_steps=cfg.n_steps,
+            frameskip=cfg.frameskip,
+            transform=None,
+            cache_dir=cfg.get("cache_dir", None),
+        )
+    elif cfg.training_type == 'video':
+        train_set = swm.data.VideoStepsDataset(
+            cfg.dataset_name,
+            num_frames=cfg.n_steps,
+            frameskip=cfg.frameskip,
+            transform=None,
+            cache_dir=None,
+            split="train",
+        )
+        val_set = swm.data.VideoStepsDataset(
+            cfg.dataset_name,
+            num_frames=cfg.n_steps,
+            frameskip=cfg.frameskip,
+            transform=None,
+            cache_dir=None,
+            split="validation",
+        )
     # Image size must be multiple of DINO patch size (14)
     img_size = (cfg.image_size // cfg.patch_size) * DINO_PATCH_SIZE
 
-    norm_action_transform = norm_col_transform(dataset.dataset, "action")
-    norm_proprio_transform = norm_col_transform(dataset.dataset, "proprio")
+    if cfg.training_type == "wm":
+        norm_action_transform = norm_col_transform(dataset.dataset, "action")
+        norm_proprio_transform = norm_col_transform(dataset.dataset, "proprio")
 
-    # Apply transforms to all steps
-    transform = spt.data.transforms.Compose(
-        *[
-            get_img_pipeline(f"{col}.{i}", f"{col}.{i}", img_size)
-            for col in ["pixels", "goal"]
-            for i in range(cfg.n_steps)
-        ],
-        spt.data.transforms.WrapTorchTransform(
-            norm_action_transform,
-            source="action",
-            target="action",
-        ),
-        spt.data.transforms.WrapTorchTransform(
-            norm_proprio_transform,
-            source="proprio",
-            target="proprio",
-        ),
-    )
+        # Apply transforms to all steps
+        transform = spt.data.transforms.Compose(
+            *[
+                get_img_pipeline(f"{col}.{i}", f"{col}.{i}", img_size)
+                for col in ["pixels", "goal"]
+                for i in range(cfg.n_steps)
+            ],
+            spt.data.transforms.WrapTorchTransform(
+                norm_action_transform,
+                source="action",
+                target="action",
+            ),
+            spt.data.transforms.WrapTorchTransform(
+                norm_proprio_transform,
+                source="proprio",
+                target="proprio",
+            ),
+        )
+        dataset.transform = transform
+        rnd_gen = torch.Generator().manual_seed(cfg.seed)
+        train_set, val_set = spt.data.random_split(
+            dataset, lengths=[cfg.train_split, 1 - cfg.train_split], generator=rnd_gen
+        )
+    else:
+        transform = spt.data.transforms.Compose(
+            *[
+                get_img_pipeline(f"{col}.{i}", f"{col}.{i}", img_size)
+                for col in ["pixels", "goal"]
+                for i in range(cfg.n_steps)
+            ],
+        )
+        train_set.transform = transform
+        val_set.transform = transform
+        rnd_gen = torch.Generator().manual_seed(cfg.seed)
 
-    dataset.transform = transform
-    rnd_gen = torch.Generator().manual_seed(cfg.seed)
-    train_set, val_set = spt.data.random_split(
-        dataset, lengths=[cfg.train_split, 1 - cfg.train_split], generator=rnd_gen
-    )
+
     logging.info(f"Train: {len(train_set)}, Val: {len(val_set)}")
 
     train = DataLoader(
@@ -93,6 +123,7 @@ def get_data(cfg):
         shuffle=True,
         generator=rnd_gen,
     )
+    # in video, sample keys : 'pixels' (bs,T,C,H,W), 'goal' (=pixels), 'action' 0*(bs, t, 1), 'episode_idx' (bs), 'step_idx'(bs, t), 'episode_len' 128*(bs)
     val = DataLoader(val_set, batch_size=cfg.batch_size, num_workers=cfg.num_workers, pin_memory=True)
 
     return spt.data.DataModule(train=train, val=val)
@@ -160,7 +191,9 @@ def get_world_model(cfg):
     embedding_dim = encoder.config.hidden_size
 
     num_patches = (cfg.image_size // cfg.patch_size) ** 2
-    embedding_dim += cfg.dinowm.proprio_embed_dim + cfg.dinowm.action_embed_dim  # Total embedding size
+
+    if cfg.training_type == "wm":
+        embedding_dim += cfg.dinowm.proprio_embed_dim + cfg.dinowm.action_embed_dim  # Total embedding size
 
     logging.info(f"Patches: {num_patches}, Embedding dim: {embedding_dim}")
 
@@ -173,11 +206,17 @@ def get_world_model(cfg):
     )
 
     # Build action and proprioception encoders
-    effective_act_dim = cfg.frameskip * cfg.dinowm.action_dim
-    action_encoder = swm.wm.dinowm.Embedder(in_chans=effective_act_dim, emb_dim=cfg.dinowm.action_embed_dim)
-    proprio_encoder = swm.wm.dinowm.Embedder(in_chans=cfg.dinowm.proprio_dim, emb_dim=cfg.dinowm.proprio_embed_dim)
+    if cfg.training_type == "video":    
+        action_encoder = None
+        proprio_encoder = None
 
-    logging.info(f"Action dim: {effective_act_dim}, Proprio dim: {cfg.dinowm.proprio_dim}")
+        logging.info(f"[Video Only] Action encoder: None, Proprio encoder: None")
+    else :
+        effective_act_dim = cfg.frameskip * cfg.dinowm.action_dim
+        action_encoder = swm.wm.dinowm.Embedder(in_chans=effective_act_dim, emb_dim=cfg.dinowm.action_embed_dim)
+        proprio_encoder = swm.wm.dinowm.Embedder(in_chans=cfg.dinowm.proprio_dim, emb_dim=cfg.dinowm.proprio_embed_dim)
+
+        logging.info(f"Action dim: {effective_act_dim}, Proprio dim: {cfg.dinowm.proprio_dim}")
 
     # Assemble world model
     world_model = swm.wm.DINOWM(
@@ -187,7 +226,7 @@ def get_world_model(cfg):
         proprio_encoder=proprio_encoder,
         history_size=cfg.dinowm.history_size,
         num_pred=cfg.dinowm.num_preds,
-        device="cuda",
+        # device="cuda",
     )
 
     # Wrap in stable_spt Module with separate optimizers for each component
@@ -262,7 +301,12 @@ def run(cfg):
     """Run training of predictor"""
 
     wandb_logger = setup_pl_logger(cfg)
-    data = get_data(cfg)
+    if cfg.training_type == 'wm':
+        data = get_data(cfg)
+        logging.info("Use Stable WorldModel StepsDataset")
+    elif cfg.training_type == 'video':
+        logging.info("Use Stable WorldModel VideoDataset")
+        data = get_data(cfg)
     world_model = get_world_model(cfg)
 
     cache_dir = swm.data.get_cache_dir()
