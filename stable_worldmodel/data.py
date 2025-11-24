@@ -27,6 +27,7 @@ import stable_pretraining as spt
 import torch
 from datasets import load_from_disk
 from rich import print
+from torchvision.io import read_video
 
 import stable_worldmodel as swm
 
@@ -228,28 +229,9 @@ class VideoStepsDataset(torch.utils.data.Dataset):
         else:
             self.idx_to_ep = np.array([], dtype=int)
 
-        # cachㄷ
+        # cache
         self._video_cache = {}
         self._max_cache_items = 16
-
-    def read_video_files(self, video_path):
-        full_path = os.path.join(self.base_dir,  video_path)
-        cap = cv2.VideoCapture(full_path)
-        frames = []
-        try:
-            while True:
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                frames.append(frame)
-        finally:
-            cap.release()
-
-        if len(frames) == 0:
-            raise AssertionError(f"Video at {full_path} could not be read or is empty")
-
-        return np.stack(frames, axis=0)
     
     def __len__(self):
         return int(self.total_samples)
@@ -261,39 +243,29 @@ class VideoStepsDataset(torch.utils.data.Dataset):
         if idx < 0 or idx >= self.total_samples:
             raise IndexError("index out of range")
 
-        # in StepsDataset:
-        # ep = self.idx_to_ep[idx]
-        # episode_indices = self.episode_slices[ep]
-        # offset = idx - self.cum_slices[ep]
-        # start = offset
-        # stop = start + self.num_steps * self.frameskip
-        # idx_slice = episode_indices[start:stop]
-        # steps = self.dataset[idx_slice]
         ep = int(self.idx_to_ep[idx]) # ep starting from 0
         offset = int(idx - self.cum_slices[ep])
         rec = self.recs[ep]
         start = offset
         idxs = list(range(start, start + self.n_steps * self.frameskip, self.frameskip))
 
-        # load video frames with simple caching
+        # load video frames with simple caching.. todo : lru?
         if ep in self._video_cache:
             video = self._video_cache[ep]
         else:
-            video = self.read_video_files(rec["video_path"])  # (T,H,W,C) numpy
-            
+            video, _, _ = read_video(os.path.join(self.base_dir,  rec["video_path"]), output_format = "TCHW") # TCHW, 0-255 torch.unit8
             # cache
             if len(self._video_cache) >= self._max_cache_items:
                 k = next(iter(self._video_cache))
                 del self._video_cache[k]
             self._video_cache[ep] = video
 
-        frames = video[idxs] 
-        # convert to torch (T,C,H,W)
-        frames_t = torch.from_numpy(frames).permute(0, 3, 1, 2).contiguous()
+        frames = video[idxs]
+
 
         return {
-            "pixels": frames_t,
-            "goal": frames_t.clone(),
+            "pixels": frames,
+            "goal": frames.clone(),
             "action": torch.zeros(self.n_steps, 1),
             "episode_idx": ep,
             "step_idx": torch.tensor(idxs, dtype=torch.long), # but this is a local index.. do i need global? 

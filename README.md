@@ -3,10 +3,29 @@
 conda create -n dino310 python=3.10 -y
 conda activate dino310
 pip install -e stable-pretraining
-pip install einops opencv-python imageio
+pip install einops imageio av
+```
+# Dataset
+## download clevrer
+```
+wget http://data.csail.mit.edu/clevrer/videos/train/video_train.zip
+wget http://data.csail.mit.edu/clevrer/videos/validation/video_validation.zip
+wget http://data.csail.mit.edu/clevrer/videos/test/video_test.zip
+```
+Then you should change path `root_dir` in `clevrer/{split}.json`
+
+## ~~download phyre~~ (in progress)
+Phyre only supports on-the-fly data reading, but because the python version conflicts, we manually should extract video.
+```
+conda create -n phyre36 python=3.6 
+conda activate phyre36
+pip install phyre opencv-python
+cd phyre
+python api_to_dataset.py --actions-per-task 8 --setup ball_within_template --output-dir "../../../../scratch/phyre_videos"
 ```
 
-# Video-training added
+
+# Video-training added (only clevrer now)
 
 * SWM added in repo
 * `cfg.training_type` added -> choices ["video", "wm"]
@@ -18,10 +37,7 @@ pip install einops opencv-python imageio
 * action_encoder, video_encoder = None if video 
 * Do not encode action, proprio of those encoders are None
 
-# Question
-
-* why history is not used? I guess n_step should be history +1 ?
-* wandb not working with different config
 
 # Todo
 * caching / dataset-class is not optimized.. takes forever lol
+* get_img_pipeline is not doing img resizing for some reason in my code

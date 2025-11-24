@@ -29,9 +29,9 @@ hydra:
   #   dir: .
 
 wandb:
-  enable: false
-  project: dinowm
-  entity: heejeong_nam
+  enable: true
+  project: cjepa
+  entity: heejeong_nam-brown-university
 
 dataset_name: clevrer # pusht_expert
 # cache_dir: null #${oc.env:SLURM_TMPDIR, null}
@@ -40,20 +40,20 @@ training_type: video # options: video, wm
 
 trainer:
   max_epochs: 100
-  # strategy: ddp 
+  strategy: ddp 
   devices: auto
   accelerator: gpu
   precision: 16-mixed
 
-batch_size: 64
-num_workers: 8
+batch_size: 16
+num_workers: 4
 train_split: 0.9
 seed: 42
 
 image_size: 224
 patch_size: 16
 
-n_steps: 2
+n_steps:  ${eval:'${dinowm.num_preds} + ${dinowm.history_size}'}
 frameskip: 5
 
 dinowm:

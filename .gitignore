@@ -5,6 +5,8 @@ environment*.json
 requirements_frozen_*.txt
 lightning_logs/
 wandb/
+*/launch.json
+*key.*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
