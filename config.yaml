@@ -29,7 +29,7 @@ hydra:
   #   dir: .
 
 wandb:
-  enable: false
+  enable: true
   project: cjepa
   entity: heejeong_nam-brown-university
 
@@ -42,10 +42,11 @@ trainer:
   max_epochs: 100
   strategy: ddp 
   devices: auto
-  accelerator: gpu
+  accelerator: gpu 
   precision: 16-mixed
+  log_every_n_steps: 1
 
-batch_size: 16
+batch_size: 8
 num_workers: 4
 train_split: 0.9
 seed: 42

@@ -6,7 +6,6 @@ import torchvision
 
 from torchvision.io import read_video
 
-
 class VideoStepsDataset(torch.utils.data.Dataset):
     def __init__(
         self,
@@ -52,15 +51,7 @@ class VideoStepsDataset(torch.utils.data.Dataset):
         self._max_cache_items = 16
     
 
-        self.transform = torchvision.transforms.Compose(
-            [
-                torchvision.transforms.ToPILImage(),
-                torchvision.transforms.CenterCrop(224),
-                torchvision.transforms.Resize(224),
-                torchvision.transforms.ToTensor(),
-                torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-            ]
-        )
+        self.transform = transform
 
     def __len__(self):
         return int(self.total_samples)

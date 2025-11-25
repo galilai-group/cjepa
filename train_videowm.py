@@ -5,6 +5,7 @@ import lightning as pl
 import stable_pretraining as spt
 import stable_worldmodel as swm
 import torch
+import torchvision
 from lightning.pytorch.callbacks import Callback, ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
 from loguru import logger as logging
@@ -27,42 +28,39 @@ DINO_PATCH_SIZE = 14  # DINO encoder uses 14x14 patches
 # ============================================================================
 def get_data(cfg):
     """Setup dataset with image transforms and normalization."""
+    
+    # Image size must be multiple of DINO patch size (14)
+    # img_size = (cfg.image_size // cfg.patch_size) * DINO_PATCH_SIZE
+    img_size = cfg.image_size
 
-    # train_set = VideoStepsDataset(
-    #     cfg.dataset_name,
-    #     num_steps=cfg.n_steps,
-    #     frameskip=cfg.frameskip,
-    #     transform=None,
-    #     cache_dir=None,
-    #     split="train",
-    # )
-
+    transform = torchvision.transforms.Compose(
+            [
+                torchvision.transforms.ToPILImage(),
+                torchvision.transforms.CenterCrop(img_size),
+                torchvision.transforms.Resize(img_size),
+                torchvision.transforms.ToTensor(),
+                torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            ]
+        )
     train_set = VideoStepsDataset(
         cfg.dataset_name,
         num_steps=cfg.n_steps,
         frameskip=cfg.frameskip,
-        transform=None,
         cache_dir=None,
-        split="validation",
+        split="train",
+        transform=transform
     )
 
     val_set = VideoStepsDataset(
         cfg.dataset_name,
         num_steps=cfg.n_steps,
         frameskip=cfg.frameskip,
-        transform=None,
         cache_dir=None,
         split="validation",
+        transform=transform
     )
-
-    # Image size must be multiple of DINO patch size (14)
-    img_size = (cfg.image_size // cfg.patch_size) * DINO_PATCH_SIZE
+    
     rnd_gen = torch.Generator().manual_seed(cfg.seed)
-
-    train_set[0]
-    exit()
-
-
     logging.info(f"Train: {len(train_set)}, Val: {len(val_set)}")
 
     train = DataLoader(
