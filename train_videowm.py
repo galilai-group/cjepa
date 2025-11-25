@@ -15,6 +15,9 @@ from transformers import AutoModel
 import wandb
 
 
+from data import VideoStepsDataset
+
+
 
 DINO_PATCH_SIZE = 14  # DINO encoder uses 14x14 patches
 
@@ -25,90 +28,39 @@ DINO_PATCH_SIZE = 14  # DINO encoder uses 14x14 patches
 def get_data(cfg):
     """Setup dataset with image transforms and normalization."""
 
-    def get_img_pipeline(key, target, img_size=224):
-        return spt.data.transforms.Compose(
-            spt.data.transforms.ToImage(
-                **spt.data.dataset_stats.ImageNet,
-                source=key,
-                target=target,
-            ),
-            spt.data.transforms.Resize(img_size, source=key, target=target),
-            spt.data.transforms.CenterCrop(img_size, source=key, target=target),
-        )
+    # train_set = VideoStepsDataset(
+    #     cfg.dataset_name,
+    #     num_steps=cfg.n_steps,
+    #     frameskip=cfg.frameskip,
+    #     transform=None,
+    #     cache_dir=None,
+    #     split="train",
+    # )
 
-    def norm_col_transform(dataset, col="pixels"):
-        """Normalize column to zero mean, unit variance."""
-        data = dataset[col][:]
-        mean = data.mean(0).unsqueeze(0)
-        std = data.std(0).unsqueeze(0)
-        return lambda x: (x - mean) / std
+    train_set = VideoStepsDataset(
+        cfg.dataset_name,
+        num_steps=cfg.n_steps,
+        frameskip=cfg.frameskip,
+        transform=None,
+        cache_dir=None,
+        split="validation",
+    )
 
-    if cfg.training_type =='wm':
-        dataset = swm.data.StepsDataset(
-            cfg.dataset_name,
-            num_steps=cfg.n_steps,
-            frameskip=cfg.frameskip,
-            transform=None,
-            cache_dir=cfg.get("cache_dir", None),
-        )
-    elif cfg.training_type == 'video':
-        train_set = swm.data.VideoStepsDataset(
-            cfg.dataset_name,
-            num_steps=cfg.n_steps,
-            frameskip=cfg.frameskip,
-            transform=None,
-            cache_dir=None,
-            split="train",
-        )
-        val_set = swm.data.VideoStepsDataset(
-            cfg.dataset_name,
-            num_steps=cfg.n_steps,
-            frameskip=cfg.frameskip,
-            transform=None,
-            cache_dir=None,
-            split="validation",
-        )
+    val_set = VideoStepsDataset(
+        cfg.dataset_name,
+        num_steps=cfg.n_steps,
+        frameskip=cfg.frameskip,
+        transform=None,
+        cache_dir=None,
+        split="validation",
+    )
+
     # Image size must be multiple of DINO patch size (14)
     img_size = (cfg.image_size // cfg.patch_size) * DINO_PATCH_SIZE
+    rnd_gen = torch.Generator().manual_seed(cfg.seed)
 
-    if cfg.training_type == "wm":
-        norm_action_transform = norm_col_transform(dataset.dataset, "action")
-        norm_proprio_transform = norm_col_transform(dataset.dataset, "proprio")
-
-        # Apply transforms to all steps
-        transform = spt.data.transforms.Compose(
-            *[
-                get_img_pipeline(f"{col}.{i}", f"{col}.{i}", img_size)
-                for col in ["pixels"]
-                for i in range(cfg.n_steps)
-            ],
-            spt.data.transforms.WrapTorchTransform(
-                norm_action_transform,
-                source="action",
-                target="action",
-            ),
-            spt.data.transforms.WrapTorchTransform(
-                norm_proprio_transform,
-                source="proprio",
-                target="proprio",
-            ),
-        )
-        dataset.transform = transform
-        rnd_gen = torch.Generator().manual_seed(cfg.seed)
-        train_set, val_set = spt.data.random_split(
-            dataset, lengths=[cfg.train_split, 1 - cfg.train_split], generator=rnd_gen
-        )
-    else:
-        transform = spt.data.transforms.Compose(
-            *[
-                get_img_pipeline(f"{col}.{i}", f"{col}.{i}", img_size)
-                for col in ["pixels"]
-                for i in range(cfg.n_steps)
-            ],
-        )
-        train_set.transform = transform
-        val_set.transform = transform
-        rnd_gen = torch.Generator().manual_seed(cfg.seed)
+    train_set[0]
+    exit()
 
 
     logging.info(f"Train: {len(train_set)}, Val: {len(val_set)}")
@@ -139,21 +91,11 @@ def get_world_model(cfg):
     def forward(self, batch, stage):
         """Forward: encode observations, predict next states, compute losses."""
 
-        proprio_key = "proprio" if "proprio" in batch else None
-
-        # Replace NaN values with 0 (occurs at sequence boundaries)
-        if proprio_key is not None:
-            batch[proprio_key] = torch.nan_to_num(batch[proprio_key], 0.0)
-        if "action" in batch:
-            batch["action"] = torch.nan_to_num(batch["action"], 0.0)
-
         # Encode all timesteps into latent embeddings
         batch = self.model.encode(
             batch,
             target="embed",
-            pixels_key="pixels",
-            proprio_key=proprio_key,
-            action_key="action",
+            pixels_key="pixels"
         )
 
         # Use history to predict next states
@@ -161,29 +103,10 @@ def get_world_model(cfg):
         pred_embedding = self.model.predict(embedding)
         target_embedding = batch["embed"][:, cfg.dinowm.num_preds :, :, :]  # (B, T-1, patches, dim)
 
-        # Compute pixel reconstruction loss
+        # Compute pixel latent prediction loss
         pixels_dim = batch["pixels_embed"].shape[-1]
-        pixels_loss = F.mse_loss(pred_embedding[..., :pixels_dim], target_embedding[..., :pixels_dim].detach())
-        batch["pixels_loss"] = pixels_loss
+        batch["loss"] = F.mse_loss(pred_embedding, target_embedding.detach())
 
-        # Add proprioception loss if available
-        if proprio_key is not None:
-            proprio_dim = batch["proprio_embed"].shape[-1]
-            proprio_loss = F.mse_loss(
-                pred_embedding[..., pixels_dim : pixels_dim + proprio_dim],
-                target_embedding[..., pixels_dim : pixels_dim + proprio_dim].detach(),
-            )
-            batch["proprio_loss"] = proprio_loss
-
-            batch["loss"] = F.mse_loss(
-                pred_embedding[..., : pixels_dim + proprio_dim],
-                target_embedding[..., : pixels_dim + proprio_dim].detach(),
-            )
-        else:
-            batch["loss"] = F.mse_loss(
-                pred_embedding[..., : pixels_dim ],
-                target_embedding[..., : pixels_dim ].detach(),
-            )
         # Log all losses
         prefix = "train/" if self.training else "val/"
         losses_dict = {f"{prefix}{k}": v.detach() for k, v in batch.items() if "_loss" in k}
@@ -305,12 +228,7 @@ def run(cfg):
     """Run training of predictor"""
 
     wandb_logger = setup_pl_logger(cfg)
-    if cfg.training_type == 'wm':
-        data = get_data(cfg)
-        logging.info("Use Stable WorldModel StepsDataset")
-    elif cfg.training_type == 'video':
-        logging.info("Use Stable WorldModel VideoDataset")
-        data = get_data(cfg)
+    data = get_data(cfg)
     world_model = get_world_model(cfg)
 
     cache_dir = swm.data.get_cache_dir()
@@ -319,7 +237,6 @@ def run(cfg):
         filename=cfg.output_model_name,
         epoch_interval=10,
     )
-    # checkpoint_callback = ModelCheckpoint(dirpath=cache_dir, filename=f"{cfg.output_model_name}_weights")
 
     trainer = pl.Trainer(
         **cfg.trainer,

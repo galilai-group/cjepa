@@ -29,7 +29,7 @@ hydra:
   #   dir: .
 
 wandb:
-  enable: true
+  enable: false
   project: cjepa
   entity: heejeong_nam-brown-university
 
