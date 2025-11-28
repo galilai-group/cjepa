@@ -5,6 +5,10 @@ conda activate dino310
 pip install -e stable-pretraining
 pip install einops imageio av
 ```
+if running oc wm
+```
+pip install webdataset # not using
+```
 # Dataset
 ## download clevrer
 ```
