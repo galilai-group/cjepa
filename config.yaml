@@ -33,8 +33,8 @@ wandb:
   project: cjepa
   entity: heejeong_nam-brown-university
 
-dataset_name: clevrer # pusht_expert
-# cache_dir: null #${oc.env:SLURM_TMPDIR, null}
+dataset_name: clevrer_train # pusht_expert
+cache_dir: "/users/hnam16/scratch"
 output_model_name: world_model
 training_type: video # options: video, wm
 

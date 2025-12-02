@@ -12,6 +12,7 @@ class OCWM(torch.nn.Module):
     def __init__(
         self,
         encoder,
+        backbone,
         slot_attention, 
         initializer,
         predictor,
@@ -23,7 +24,8 @@ class OCWM(torch.nn.Module):
     ):
         super().__init__()
 
-        self.backbone = encoder # includes backbone and output transform
+        self.encoder = encoder # includes backbone and output transform
+        self.backbone = backbone
         self.slot_attention = slot_attention # includes correcter and  predictor  / should i use this predictor??? NOOOOO
         self.initializer = initializer
         self.predictor = predictor
@@ -55,11 +57,11 @@ class OCWM(torch.nn.Module):
         # == pixels embeddings
         pixels = info[pixels_key].float()  # (B, T, 3, H, W)
         pixels = pixels.unsqueeze(1) if pixels.ndim == 4 else pixels
-
+        
         B = pixels.shape[0]
         # pixels = rearrange(pixels, "b t ... -> (b t) ...")
         # pixels = self.encoder_transform(pixels)
-        pixels_embed = self.backbone(pixels)#.last_hidden_state.detach() # bt, n_patches+1, d
+        pixels_embed = self.encoder(pixels)#.last_hidden_state.detach() # bt, n_patches+1, d
         # pixels_embed["backbone_features"].shape = 8, 4, 1369, 384 > each patch has 384 dim (dino)
         # pixels_embed["features"].shape = 8, 4, 1369, 64 > each patch has 64 dim
         # what is pixels_embed["vit_block12"] and pixels_embed["vit_block_keys12"]

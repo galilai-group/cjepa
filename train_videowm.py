@@ -28,39 +28,59 @@ DINO_PATCH_SIZE = 14  # DINO encoder uses 14x14 patches
 # ============================================================================
 def get_data(cfg):
     """Setup dataset with image transforms and normalization."""
-    
-    # Image size must be multiple of DINO patch size (14)
-    # img_size = (cfg.image_size // cfg.patch_size) * DINO_PATCH_SIZE
-    img_size = cfg.image_size
 
-    transform = torchvision.transforms.Compose(
-            [
-                torchvision.transforms.ToPILImage(),
-                torchvision.transforms.CenterCrop(img_size),
-                torchvision.transforms.Resize(img_size),
-                torchvision.transforms.ToTensor(),
-                torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-            ]
+    def get_img_pipeline(key, target, img_size=224):
+        return spt.data.transforms.Compose(
+            spt.data.transforms.ToImage(
+                **spt.data.dataset_stats.ImageNet,
+                source=key,
+                target=target,
+            ),
+            spt.data.transforms.Resize(img_size, source=key, target=target),
+            spt.data.transforms.CenterCrop(img_size, source=key, target=target),
         )
-    train_set = VideoStepsDataset(
+
+    def norm_col_transform(dataset, col="pixels"):
+        """Normalize column to zero mean, unit variance."""
+        data = dataset[col][:]
+        mean = data.mean(0).unsqueeze(0)
+        std = data.std(0).unsqueeze(0)
+        return lambda x: (x - mean) / std
+
+    dataset = swm.data.VideoDataset(
         cfg.dataset_name,
         num_steps=cfg.n_steps,
         frameskip=cfg.frameskip,
-        cache_dir=None,
-        split="train",
-        transform=transform
+        transform=None,
+        cache_dir=cfg.get("cache_dir", None),
     )
 
-    val_set = VideoStepsDataset(
-        cfg.dataset_name,
-        num_steps=cfg.n_steps,
-        frameskip=cfg.frameskip,
-        cache_dir=None,
-        split="validation",
-        transform=transform
+    # Image size must be multiple of DINO patch size (14)
+    img_size = (cfg.image_size // cfg.patch_size) * DINO_PATCH_SIZE
+
+    # norm_action_transform = norm_col_transform(dataset.dataset, "action")
+    # norm_proprio_transform = norm_col_transform(dataset.dataset, "proprio")
+
+    # Apply transforms to all steps
+    transform = spt.data.transforms.Compose(
+        *[get_img_pipeline(f"{col}.{i}", f"{col}.{i}", img_size) for col in ["pixels"] for i in range(cfg.n_steps)],
+        # spt.data.transforms.WrapTorchTransform(
+        #     norm_action_transform,
+        #     source="action",
+        #     target="action",
+        # ),
+        # spt.data.transforms.WrapTorchTransform(
+        #     norm_proprio_transform,
+        #     source="proprio",
+        #     target="proprio",
+        # ),
     )
-    
+
+    dataset.transform = transform
     rnd_gen = torch.Generator().manual_seed(cfg.seed)
+    train_set, val_set = spt.data.random_split(
+        dataset, lengths=[cfg.train_split, 1 - cfg.train_split], generator=rnd_gen
+    )
     logging.info(f"Train: {len(train_set)}, Val: {len(val_set)}")
 
     train = DataLoader(
@@ -74,7 +94,6 @@ def get_data(cfg):
         shuffle=True,
         generator=rnd_gen,
     )
-    # in video, sample keys : 'pixels' (bs,T,C,H,W), 'goal' (=pixels), 'action' 0*(bs, t, 1), 'episode_idx' (bs), 'step_idx'(bs, t), 'episode_len' 128*(bs)
     val = DataLoader(val_set, batch_size=cfg.batch_size, num_workers=cfg.num_workers, pin_memory=True)
 
     return spt.data.DataModule(train=train, val=val)
@@ -113,7 +132,7 @@ def get_world_model(cfg):
         return batch
 
     # Load frozen DINO encoder
-    encoder = AutoModel.from_pretrained("facebook/dinov2-small")
+    encoder = AutoModel.from_pretrained("facebook/dinov2-small") # yes cls, .last
     embedding_dim = encoder.config.hidden_size
 
     num_patches = (cfg.image_size // cfg.patch_size) ** 2
@@ -229,7 +248,7 @@ def run(cfg):
     data = get_data(cfg)
     world_model = get_world_model(cfg)
 
-    cache_dir = swm.data.get_cache_dir()
+    cache_dir = swm.data.utils.get_cache_dir()
     dump_object_callback = ModelObjectCallBack(
         dirpath=cache_dir,
         filename=cfg.output_model_name,

@@ -1,5 +1,5 @@
 {
-    "root_dir": "./clevrer",
+    "root_dir": "../../../scratch/clevrer",
     "records": [
         {
             "video_path": "validation/video_10000-11000/video_10000.mp4",
