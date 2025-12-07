@@ -9,6 +9,7 @@ wandb/
 *key.*
 temp/*
 output*.txt
+**/*.ckpt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
