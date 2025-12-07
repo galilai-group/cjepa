@@ -8,6 +8,7 @@ wandb/
 */launch.json
 *key.*
 temp/*
+output*.txt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -217,4 +218,3 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-clevrer/*

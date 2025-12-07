@@ -14,7 +14,7 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from transformers import AutoModel
 import wandb
-from custom_models.dinowm import DINOWM
+from custom_models.dinowm_reg import DINOWM_REG
 
 
 from data import VideoStepsDataset
@@ -133,7 +133,7 @@ def get_world_model(cfg):
         return batch
 
     # Load frozen DINO encoder
-    encoder = AutoModel.from_pretrained("facebook/dinov2-small") # yes cls, .last
+    encoder = AutoModel.from_pretrained("facebook/dinov2-with-registers-small") # yes cls, .last
     embedding_dim = encoder.config.hidden_size
 
     num_patches = (cfg.image_size // cfg.patch_size) ** 2
@@ -165,7 +165,7 @@ def get_world_model(cfg):
         logging.info(f"Action dim: {effective_act_dim}, Proprio dim: {cfg.dinowm.proprio_dim}")
 
     # Assemble world model
-    world_model = DINOWM(
+    world_model = DINOWM_REG(
         encoder=spt.backbone.EvalOnly(encoder),
         predictor=predictor,
         action_encoder=action_encoder,

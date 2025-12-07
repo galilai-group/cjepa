@@ -34,7 +34,7 @@ wandb:
   entity: heejeong_nam-brown-university
 
 dataset_name: clevrer_train # pusht_expert
-cache_dir: "/users/hnam16/scratch"
+cache_dir: "/cs/data/people/hnam16/.stable_worldmodel"
 output_model_name: world_model
 training_type: video # options: video, wm
 
@@ -46,9 +46,9 @@ trainer:
   precision: 16-mixed
   log_every_n_steps: 1
 
-batch_size: 8
-num_workers: 4
-train_split: 0.9
+batch_size: 64
+num_workers: 16
+train_split: 0.8
 seed: 42
 
 image_size: 224
