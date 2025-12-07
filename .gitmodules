@@ -4,3 +4,7 @@
 [submodule "stable-worldmodel"]
 	path = stable-worldmodel
 	url = https://github.com/rbalestr-lab/stable-worldmodel.git
+[submodule "videosaur"]
+	path = videosaur
+	url = https://github.com/rbalestr-lab/cjepa.git
+	branch = videosaur
