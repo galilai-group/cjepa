@@ -6,7 +6,7 @@ import numpy as np
 import torch
 import torchmetrics
 
-from videosaur.utils import make_build_fn
+from videosaur.videosaur.utils import make_build_fn
 
 
 @make_build_fn(__name__, "metric")

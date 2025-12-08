@@ -3,7 +3,7 @@ import pytest
 import torch
 from torch.nn import functional as F
 
-from videosaur import metrics
+from videosaur.videosaur import metrics
 
 
 @pytest.mark.parametrize("video_input", [False, True])

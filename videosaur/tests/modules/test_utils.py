@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from videosaur.modules import utils
+from videosaur.videosaur.modules import utils
 
 
 @pytest.mark.parametrize("last_output", [False, True])

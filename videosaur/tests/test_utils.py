@@ -1,6 +1,6 @@
 import pytest
 
-from videosaur import utils
+from videosaur.videosaur import utils
 
 
 @pytest.mark.parametrize(

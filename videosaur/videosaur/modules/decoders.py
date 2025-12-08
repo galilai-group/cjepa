@@ -5,8 +5,8 @@ import timm.layers.pos_embed
 import torch
 from torch import nn
 
-from videosaur.modules import networks, utils
-from videosaur.utils import config_as_kwargs, make_build_fn
+from videosaur.videosaur.modules import networks, utils
+from videosaur.videosaur.utils import config_as_kwargs, make_build_fn
 
 
 @make_build_fn(__name__, "decoder")

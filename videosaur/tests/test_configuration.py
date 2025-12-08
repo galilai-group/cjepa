@@ -1,4 +1,4 @@
-from videosaur import configuration
+from videosaur.videosaur import configuration
 
 
 def test_resolver_eval():

@@ -1,6 +1,6 @@
 import torch
 
-from videosaur.modules import video
+from videosaur.videosaur.modules import video
 
 
 def test_map_over_time():

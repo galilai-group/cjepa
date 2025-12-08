@@ -3,7 +3,7 @@ from typing import Optional
 import torch
 from torch import nn
 
-from videosaur.utils import make_build_fn
+from videosaur.videosaur.utils import make_build_fn
 
 
 @make_build_fn(__name__, "initializer")

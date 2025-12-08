@@ -7,8 +7,8 @@ import torchvision
 from torch import nn
 from transformers import AutoModel
 
-from videosaur.modules import utils
-from videosaur.utils import config_as_kwargs, make_build_fn
+from videosaur.videosaur.modules import utils
+from videosaur.videosaur.utils import config_as_kwargs, make_build_fn
 
 
 @make_build_fn(__name__, "encoder")

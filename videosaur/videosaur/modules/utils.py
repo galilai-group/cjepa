@@ -7,7 +7,7 @@ import torch
 from einops.layers.torch import Rearrange
 from torch import nn
 
-from videosaur.utils import config_as_kwargs, get_class_by_name, make_build_fn
+from videosaur.videosaur.utils import config_as_kwargs, get_class_by_name, make_build_fn
 
 
 @make_build_fn(__name__, "utils module")
@@ -44,7 +44,7 @@ def build_module(
     if group is None or group == "":
         group = default_group
 
-    from videosaur.modules import BUILD_FNS_BY_MODULE_GROUP
+    from videosaur.videosaur.modules import BUILD_FNS_BY_MODULE_GROUP
 
     if group in BUILD_FNS_BY_MODULE_GROUP:
         build_fn = BUILD_FNS_BY_MODULE_GROUP[group]

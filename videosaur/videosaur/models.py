@@ -7,8 +7,8 @@ import torchmetrics
 from torch import nn
 from torchvision.utils import make_grid
 
-from videosaur import configuration, losses, modules, optimizers, utils, visualizations
-from videosaur.data.transforms import Denormalize
+from videosaur.videosaur import configuration, losses, modules, optimizers, utils, visualizations
+from videosaur.videosaur.data.transforms import Denormalize
 
 
 def build(

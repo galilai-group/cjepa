@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from videosaur.modules import encoders
+from videosaur.videosaur.modules import encoders
 
 
 @pytest.mark.parametrize("use_spatial_flatten", [False, True])

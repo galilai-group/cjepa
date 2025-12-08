@@ -20,8 +20,8 @@ from data import VideoStepsDataset
 import os
 import gdown
 
-import sys, importlib; sys.modules["videosaur"] = importlib.import_module("videosaur.videosaur")
-from videosaur import  models
+# import sys, importlib; sys.modules["videosaur"] = importlib.import_module("videosaur.videosaur")
+from videosaur.videosaur import  models
 
 DINO_PATCH_SIZE = 14  # DINO encoder uses 14x14 patches
 

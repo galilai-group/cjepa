@@ -11,7 +11,7 @@ import tqdm
 import webdataset as wds
 from utils import get_default_dir
 
-from videosaur.data.transforms import Resize
+from videosaur.videosaur.data.transforms import Resize
 
 parser = argparse.ArgumentParser(
     """Generate sharded dataset from tensorflow datasets YouTube VIS data."""

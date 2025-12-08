@@ -11,7 +11,7 @@ import torch
 from omegaconf import OmegaConf
 from pytorch_lightning.utilities import rank_zero_info as log_info
 
-from videosaur import configuration, data, metrics, models, utils
+from videosaur.videosaur import configuration, data, metrics, models, utils
 
 TENSORBOARD_SUBDIR = "tb"
 METRICS_SUBDIR = "metrics"

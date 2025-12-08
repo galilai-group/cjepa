@@ -6,7 +6,7 @@ from typing import List, Optional, Tuple, Union
 import numpy as np
 import torch
 from PIL import ImageColor, Image
-from videosaur.data.transforms import Resize
+from videosaur.videosaur.data.transforms import Resize
 import seaborn as sns
 import cv2
 

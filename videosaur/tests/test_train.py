@@ -2,7 +2,7 @@ import pathlib
 
 import pytest
 
-from videosaur import configuration, models, train
+from videosaur.videosaur import configuration, models, train
 
 
 def _should_filter_config(config: pathlib.Path) -> bool:

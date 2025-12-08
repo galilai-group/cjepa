@@ -6,8 +6,8 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-from videosaur.modules import utils
-from videosaur.utils import make_build_fn
+from videosaur.videosaur.modules import utils
+from videosaur.videosaur.utils import make_build_fn
 
 # Default weight init for MLP, CNNEncoder, CNNDecoder
 DEFAULT_WEIGHT_INIT = "default"

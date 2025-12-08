@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Mapping, Optional
 import torch
 from torch import nn
 
-from videosaur import schedulers
+from videosaur.videosaur import schedulers
 
 
 class OptimizerBuilder:

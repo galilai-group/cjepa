@@ -1,6 +1,6 @@
 import torch
 
-from videosaur.data import transforms_video
+from videosaur.videosaur.data import transforms_video
 
 
 def test_from_tensor():

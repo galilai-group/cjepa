@@ -2,13 +2,13 @@ import argparse
 import torch
 from torchvision.io import read_video, read_image
 from omegaconf import OmegaConf
-from videosaur import configuration, models
-from videosaur.data.transforms import CropResize, Normalize, Resize, build_inference_transform
+from videosaur.videosaur import configuration, models
+from videosaur.videosaur.data.transforms import CropResize, Normalize, Resize, build_inference_transform
 import os
 import numpy as np
 import imageio
 from torchvision import transforms as tvt
-from videosaur.visualizations import mix_inputs_with_masks, draw_segmentation_masks_on_image, color_map, overlay_inputs_with_masks
+from videosaur.videosaur.visualizations import mix_inputs_with_masks, draw_segmentation_masks_on_image, color_map, overlay_inputs_with_masks
 import matplotlib.pyplot as plt
 
 

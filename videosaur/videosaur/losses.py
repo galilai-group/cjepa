@@ -4,7 +4,7 @@ import einops
 import torch
 from torch import nn
 
-from videosaur import modules, utils
+from videosaur.videosaur import modules, utils
 
 
 @utils.make_build_fn(__name__, "loss")

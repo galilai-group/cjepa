@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from videosaur.modules import decoders, networks
+from videosaur.videosaur.modules import decoders, networks
 
 
 @pytest.mark.parametrize("eval_upscale", [False, True])

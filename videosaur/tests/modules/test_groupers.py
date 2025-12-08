@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from videosaur.modules import groupers
+from videosaur.videosaur.modules import groupers
 
 
 @pytest.mark.parametrize("use_mlp", [False, True])

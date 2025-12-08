@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from videosaur import schedulers
+from videosaur.videosaur import schedulers
 
 
 @pytest.mark.parametrize(

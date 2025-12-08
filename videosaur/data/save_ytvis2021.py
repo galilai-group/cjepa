@@ -12,8 +12,8 @@ from PIL import Image
 from utils import get_default_dir
 from ytvis import YTVOS as YTVIS
 
-from videosaur.data.transforms import Resize
-from videosaur.data.transforms_video import FromTensorVideo, ToTensorVideo
+from videosaur.videosaur.data.transforms import Resize
+from videosaur.videosaur.data.transforms_video import FromTensorVideo, ToTensorVideo
 
 # TODO: add download from google drive
 # for now use gdrive_download script with IDs above.

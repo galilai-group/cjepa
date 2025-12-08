@@ -4,7 +4,7 @@ import omegaconf
 import pytest
 import torch
 
-from videosaur.data import datamodules, pipelines
+from videosaur.videosaur.data import datamodules, pipelines
 
 
 @pytest.mark.dataset

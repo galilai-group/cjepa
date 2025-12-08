@@ -5,9 +5,9 @@ from typing import Any, Callable, Dict, Optional, Tuple
 import numpy as np
 import webdataset as wds
 
-from videosaur.data import transforms
-from videosaur.data.utils import remap_dict
-from videosaur.utils import config_as_kwargs
+from videosaur.videosaur.data import transforms
+from videosaur.videosaur.data.utils import remap_dict
+from videosaur.videosaur.utils import config_as_kwargs
 
 
 def build(config, name: Optional[str] = "VideoPipeline", **kwargs):

@@ -3,7 +3,7 @@ import os
 import pytest
 import torch
 
-from videosaur.data import datamodules
+from videosaur.videosaur.data import datamodules
 
 
 @pytest.mark.dataset

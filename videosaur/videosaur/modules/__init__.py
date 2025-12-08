@@ -1,14 +1,14 @@
-from videosaur.modules import timm
-from videosaur.modules.decoders import build as build_decoder
-from videosaur.modules.encoders import build as build_encoder
-from videosaur.modules.groupers import build as build_grouper
-from videosaur.modules.initializers import build as build_initializer
-from videosaur.modules.networks import build as build_network
-from videosaur.modules.utils import Resizer, SoftToHardMask
-from videosaur.modules.utils import build as build_utils
-from videosaur.modules.utils import build_module, build_torch_function, build_torch_module
-from videosaur.modules.video import LatentProcessor, MapOverTime, ScanOverTime
-from videosaur.modules.video import build as build_video
+from videosaur.videosaur.modules import timm
+from videosaur.videosaur.modules.decoders import build as build_decoder
+from videosaur.videosaur.modules.encoders import build as build_encoder
+from videosaur.videosaur.modules.groupers import build as build_grouper
+from videosaur.videosaur.modules.initializers import build as build_initializer
+from videosaur.videosaur.modules.networks import build as build_network
+from videosaur.videosaur.modules.utils import Resizer, SoftToHardMask
+from videosaur.videosaur.modules.utils import build as build_utils
+from videosaur.videosaur.modules.utils import build_module, build_torch_function, build_torch_module
+from videosaur.videosaur.modules.video import LatentProcessor, MapOverTime, ScanOverTime
+from videosaur.videosaur.modules.video import build as build_video
 
 __all__ = [
     "build_decoder",

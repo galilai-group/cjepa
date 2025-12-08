@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from videosaur.modules import networks
+from videosaur.videosaur.modules import networks
 
 
 @pytest.mark.parametrize(
