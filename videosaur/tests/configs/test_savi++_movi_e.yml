@@ -1,0 +1,112 @@
+# This is a test configuration, it is not replicating the exact settings of SAVi++
+experiment_group: test
+experiment_name: test_savi_movi_e
+
+globals:
+  NUM_SLOTS: 3
+  SLOT_DIM: 16
+  FEAT_DIM: 512
+  FEAT_SIZE: 16
+
+dataset:
+  train_shards: "movi_e/movi_e-train-{000000..000000}.tar"
+  val_shards: "movi_e/movi_e-validation-{000000..000000}.tar"
+  batch_size: 2
+  val_size: 250
+  num_workers: 1
+  train_pipeline:
+    video_size: 24
+    chunk_size: 6
+    keys: [video]
+    transforms:
+      name: movi_train
+      type: video
+      input_size: 128
+      num_classes: 24
+  val_pipeline:
+    use_chunks: false
+    keys: [video, segmentations]
+    transforms:
+      name: movi_val
+      type: video
+      input_size: 128
+      num_classes: 24
+
+trainer:
+  max_steps: 100
+
+optimizer:
+  name: Adam
+  lr: 3e-4
+  lr_scheduler:
+    name: exp_decay_with_warmup
+    warmup_steps: 50
+
+model:
+  input_type: video
+  target_type: input
+  visualize: true
+  visualize_every_n_steps: 2
+
+  initializer:
+    name: RandomInit
+    n_slots: ${globals.NUM_SLOTS}
+    dim: ${globals.SLOT_DIM}
+
+  encoder:
+    backbone:
+      name: TimmExtractor
+      model: resnet18_savi
+      features: resnet_block4
+    pos_embed:
+      name: utils.CoordinatePositionEmbed
+      dim: ${globals.FEAT_DIM}
+      size: ${globals.FEAT_SIZE}
+    output_transform:
+      name: utils.Chain
+      models:
+        - name: networks.two_layer_mlp
+          inp_dim: ${globals.FEAT_DIM}
+          outp_dim: ${globals.SLOT_DIM}
+          hidden_dim: ${globals.FEAT_DIM}
+          initial_layer_norm: true
+        - name: networks.TransformerEncoder
+          dim: ${globals.SLOT_DIM}
+          n_blocks: 1
+          n_heads: 4
+    spatial_flatten: true
+
+  grouper:
+    name: SlotAttention
+    inp_dim: ${globals.SLOT_DIM}
+    slot_dim: ${globals.SLOT_DIM}
+    n_iters: 1
+    use_mlp: false
+
+  decoder:
+    name: SpatialBroadcastDecoder
+    inp_dim: ${globals.SLOT_DIM}
+    outp_dim: 3
+    backbone:
+      name: networks.savi_decoder
+      inp_dim: ${..inp_dim}
+    backbone_dim: 64
+
+  predictor:
+    name: networks.TransformerEncoder
+    dim: ${globals.SLOT_DIM}
+    n_blocks: 1
+    n_heads: 4
+
+val_metrics:
+  ari:
+    name: VideoARI
+    ignore_background: true
+    pred_key: decoder_masks_hard
+    true_key: segmentations
+  image_ari:
+    name: ImageARI
+    ignore_background: true
+    video_input: true
+    pred_key: decoder_masks_hard
+    true_key: segmentations

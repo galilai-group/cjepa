@@ -1,0 +1,86 @@
+experiment_group: test
+experiment_name: test_param_groups
+
+globals:
+  NUM_SLOTS: 7
+  SLOT_DIM: 16
+  FEAT_DIM: 384
+  NUM_PATCHES: 196
+
+dataset:
+  name: DummyDataModule
+  train_size: 20
+  val_size: 5
+  batch_size: 5
+  train_transforms:
+    name: dummyimage_train
+    type: image
+    input_size: 224
+    num_classes: 4
+  val_transforms:
+    name: dummyimage_val
+    type: image
+    input_size: 224
+    num_classes: 4
+  shapes:
+    image: [224, 224, 3]
+    masks: [224, 224, 1]
+
+trainer:
+  max_steps: 100
+
+optimizer:
+  name: Adam
+  lr: 3e-4
+  betas: [0.9, 0.9]
+  param_groups:
+    - modules: encoder
+      lr: 1e-4  # Override global LR
+      betas: [0.5, 0.9]  # Override global betas
+      lr_scheduler:
+        name: exp_decay_with_warmup
+        warmup_steps: 50
+    - modules: initializer
+      lr: 1e-3
+      lr_scheduler:
+        name: constant
+    - modules: [processor, decoder]
+      # Inherits global LR
+      lr_scheduler:
+        name: exp_decay_with_warmup
+        warmup_steps: 1000
+
+model:
+  input_type: image
+  visualize: false
+
+  initializer:
+    name: RandomInit
+    n_slots: ${globals.NUM_SLOTS}
+    dim: ${globals.SLOT_DIM}
+
+  encoder:
+    backbone:
+      name: TimmExtractor
+      model: vit_small_patch16_224
+      features: vit_block12
+      frozen: true
+
+  grouper:
+    name: SlotAttention
+    inp_dim: ${globals.FEAT_DIM}
+    slot_dim: ${globals.SLOT_DIM}
+
+  decoder:
+    name: MLPDecoder
+    inp_dim: ${globals.SLOT_DIM}
+    outp_dim: ${globals.FEAT_DIM}
+    hidden_dims: [128, 128]
+    n_patches: ${globals.NUM_PATCHES}
+
+val_metrics:
+  ari:
+    name: ImageARI
+    ignore_background: true
+    pred_key: decoder_masks_hard
+    true_key: masks

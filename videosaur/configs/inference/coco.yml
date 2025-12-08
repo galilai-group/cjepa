@@ -1,0 +1,12 @@
+checkpoint: checkpoints/coco_dinosaur_base14_dinov2.ckpt
+model_config: configs/dinosaur/coco_base14_dinov2.yml
+n_slots: 5
+input:
+  path: docs/static/images/test2.jpg
+  type: image
+  transforms:
+    use_movi_normalization: false
+    dataset_type: image
+    input_size: 224
+output:
+  save_path: docs/static/images/test2_output.jpg

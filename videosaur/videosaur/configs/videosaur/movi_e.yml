@@ -1,0 +1,165 @@
+experiment_group: videosaur
+experiment_name: movi_e
+
+globals:
+  NUM_SLOTS: 15
+  SLOT_DIM: 128
+  VIT_MODEL: vit_base_patch8_224_dino
+  FEAT_DIM: "${config_prop: VIT_PARAMS, ${.VIT_MODEL}, FEAT_DIM}"
+  NUM_PATCHES: "${config_prop: VIT_PARAMS, ${.VIT_MODEL}, NUM_PATCHES}"
+  NUM_GPUS: 1
+  BATCH_SIZE_PER_GPU: 128
+  TOTAL_BATCH_SIZE: "${mul: ${.NUM_GPUS}, ${.BATCH_SIZE_PER_GPU}}"
+  BASE_LR: 0.0001
+  SIM_TEMP: 0.075
+  SIM_WEIGHT: 0.1
+
+trainer:
+  max_steps: 100000
+  log_every_n_steps: 500
+  val_check_interval: 1000
+  gradient_clip_val: 0.05
+
+optimizer:
+  name: Adam
+  # Scale learning rate by batch size: take base lr once for every 32 samples
+  lr: "${eval: 'a / 32 * b', ${globals.TOTAL_BATCH_SIZE}, ${globals.BASE_LR}}"
+  lr_scheduler:
+    name: exp_decay_with_warmup
+    warmup_steps: 2500
+    decay_steps: ${trainer.max_steps}
+
+model:
+  input_type: video
+  visualize: true
+  visualize_every_n_steps: 10000
+
+  losses:
+    loss_timesim:
+      name: CrossEntropyLoss
+      target_key: encoder.vit_block_keys12
+      remove_last_n_frames: 1
+      pred_dims:
+        - 0
+        - ${globals.NUM_PATCHES}
+      target_transform:
+        name: utils.FeatureTimeSimilarity
+        softmax: true
+        temperature: ${globals.SIM_TEMP}
+        threshold: 0.0
+  loss_weights:
+    loss_timesim: ${globals.SIM_WEIGHT}
+
+  initializer:
+    name: RandomInit
+    n_slots: ${globals.NUM_SLOTS}
+    dim: ${globals.SLOT_DIM}
+
+  encoder:
+    backbone:
+      name: TimmExtractor
+      model: ${globals.VIT_MODEL}
+      features:
+      - vit_block12
+      - vit_block_keys12
+      frozen: true
+      pretrained: true
+    output_transform:
+      name: networks.two_layer_mlp
+      inp_dim: ${globals.FEAT_DIM}
+      outp_dim: ${globals.SLOT_DIM}
+      hidden_dim: "${mul: ${globals.FEAT_DIM}, 2}"
+      layer_norm: true
+
+  grouper:
+    name: SlotAttention
+    inp_dim: ${globals.SLOT_DIM}
+    slot_dim: ${globals.SLOT_DIM}
+    n_iters: 2
+    use_mlp: false
+
+  latent_processor:
+    first_step_corrector_args:
+      n_iters: 3
+
+  decoder:
+    name: SlotMixerDecoder
+    inp_dim: ${globals.SLOT_DIM}
+    embed_dim: ${globals.SLOT_DIM}
+    outp_dim:  ${globals.NUM_PATCHES}
+    n_patches: ${globals.NUM_PATCHES}
+    allocator:
+      name: TransformerEncoder
+      dim: ${globals.SLOT_DIM}
+      memory_dim: ${globals.SLOT_DIM}
+      n_blocks: 2
+      n_heads: 4
+    renderer:
+      name: MLP
+      inp_dim: ${globals.SLOT_DIM}
+      outp_dim: 1024
+      hidden_dims: [1024, 1024, 1024]
+      final_activation: true
+    renderer_dim: 1024
+    use_layer_norms: true
+    pos_embed_mode: add
+
+  predictor:
+    name: networks.TransformerEncoder
+    dim: ${globals.SLOT_DIM}
+    n_blocks: 1
+    n_heads: 4
+
+val_metrics:
+  ari:
+    name: VideoARI
+    ignore_background: true
+    pred_key: decoder_masks_hard
+    true_key: segmentations
+  image_ari:
+    name: ImageARI
+    ignore_background: true
+    video_input: true
+    pred_key: decoder_masks_hard
+    true_key: segmentations
+  mbo:
+    name: VideoIoU
+    matching: overlap
+    ignore_background: true
+    pred_key: decoder_masks_hard
+    true_key: segmentations
+  image_mbo:
+    name: ImageIoU
+    matching: overlap
+    ignore_background: true
+    video_input: true
+    pred_key: decoder_masks_hard
+    true_key: segmentations
+
+dataset:
+  train_shards: "movi_e/movi_e-train-{000000..000304}.tar"
+  val_shards: "movi_e/movi_e-validation-{000000..000007}.tar"
+  batch_size: ${globals.BATCH_SIZE_PER_GPU}
+  val_batch_size: 16
+  val_size: 250
+  num_workers: 8
+  num_val_workers: 8
+  train_pipeline:
+    video_size: 24
+    chunk_size: 4
+    sample_one_chunk_per_video: true
+    keys: [video]
+    shuffle_size: 512
+    transforms:
+      name: movi_train
+      type: video
+      input_size: 224
+      h_flip_prob: 0.5
+  val_pipeline:
+    use_chunks: false
+    keys: [video, segmentations]
+    transforms:
+      name: movi_val
+      type: video
+      input_size: 224
+      num_classes: 24

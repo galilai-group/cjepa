@@ -1,0 +1,11 @@
+checkpoint: logs/videosaur/2025-11-30-15-21-11_clevrer_dinov2/checkpoints/step=81000.ckpt
+model_config: configs/videosaur/clevrer_dinov2_hf.yml
+n_slots: 7
+input:
+  path: docs/static/videos/video_10000.mp4
+  type: video
+  transforms:
+    dataset_type: video
+    input_size: 196
+output:
+  save_path: result_video/video_10000_masks_hf.mp4

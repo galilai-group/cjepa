@@ -35,6 +35,7 @@ wandb:
 
 dataset_name: clevrer_train # pusht_expert
 cache_dir: "/cs/data/people/hnam16/.stable_worldmodel"
+ckpt_dir: "/home/hnam16/.stable_worldmodel"
 output_model_name: world_model
 training_type: video # options: video, wm
 

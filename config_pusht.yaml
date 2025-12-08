@@ -35,7 +35,8 @@ wandb:
 
 dataset_name: pusht_expert
 # cache_dir: null #${oc.env:SLURM_TMPDIR, null}
-output_model_name: world_model
+output_model_name: world_model_pusht
+ckpt_dir: "/home/hnam16/.stable_worldmodel"
 
 trainer:
   max_epochs: 100

@@ -1,0 +1,101 @@
+experiment_group: test
+experiment_name: test_coco
+
+globals:
+  INPUT_TYPE: image
+  NUM_SLOTS: 5
+  SLOT_DIM: 64
+  FEAT_DIM: 384
+  NUM_PATCHES: 196
+
+trainer:
+  max_steps: 100
+  gradient_clip_val: 1.0
+
+optimizer:
+  name: Adam
+  lr: 3e-4
+  lr_scheduler:
+    name: exp_decay_with_warmup
+    warmup_steps: 50
+
+model:
+  input_type: ${globals.INPUT_TYPE}
+  visualize: true
+  visualize_every_n_steps: 2
+
+  initializer:
+    name: RandomInit
+    n_slots: ${globals.NUM_SLOTS}
+    dim: ${globals.SLOT_DIM}
+
+  encoder:
+    backbone:
+      name: TimmExtractor
+      model: vit_small_patch16_224
+      features: vit_block12
+      frozen: true
+    output_transform:
+      name: networks.two_layer_mlp
+      inp_dim: ${globals.FEAT_DIM}
+      outp_dim: ${globals.SLOT_DIM}
+      hidden_dim: "${mul: ${globals.FEAT_DIM}, 2}"
+      layer_norm: true
+  grouper:
+    name: SlotAttention
+    inp_dim: ${globals.SLOT_DIM}
+    slot_dim: ${globals.SLOT_DIM}
+    n_iters: 3
+    use_mlp: true
+
+  decoder:
+    name: MLPDecoder
+    inp_dim: ${globals.SLOT_DIM}
+    outp_dim: ${globals.FEAT_DIM}
+    hidden_dims: [512, 512, 512]
+    n_patches: ${globals.NUM_PATCHES}
+
+val_metrics:
+  image_ari:
+    name: ImageARI
+    ignore_overlaps: true
+    pred_key: decoder_masks_hard
+    true_key: segmentations
+  image_mbo:
+    name: ImageIoU
+    matching: overlap
+    ignore_overlaps: true
+    pred_key: decoder_masks_hard
+    true_key: segmentations
+  image_j_and_f:
+    name: ImageJandF
+    ignore_overlaps: true
+    pred_key: decoder_masks_hard
+    true_key: segmentations
+
+dataset:
+  train_shards: "coco/coco-train-{000000..000000}.tar"
+  val_shards: "coco/coco-validation-{000000..000000}.tar"
+  batch_size: 2
+  val_size: 5000
+  num_workers: 1
+  train_pipeline:
+    name: ${globals.INPUT_TYPE}
+    keys: [image]
+    is_video_dataset: false
+    shuffle_size: 100
+    transforms:
+      name: coco_train
+      type: ${globals.INPUT_TYPE}
+      crop_type: random
+      input_size: 224
+  val_pipeline:
+    name: ${globals.INPUT_TYPE}
+    keys: [image, segmentations]
+    is_video_dataset: false
+    transforms:
+      name: coco_val
+      type: ${globals.INPUT_TYPE}
+      crop_type: central
+      input_size: 224
+      num_classes: 62

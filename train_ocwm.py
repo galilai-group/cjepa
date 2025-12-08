@@ -264,11 +264,11 @@ def run(cfg):
     data = get_data(cfg)
     world_model = get_world_model(cfg)
 
-    cache_dir = swm.data.utils.get_cache_dir()
+    cache_dir = swm.data.utils.get_cache_dir() if cfg.cache_dir is None else cfg.cache_dir
     dump_object_callback = ModelObjectCallBack(
         dirpath=cache_dir,
         filename=cfg.output_model_name,
-        epoch_interval=5,
+        epoch_interval=1,
     )
 
     trainer = pl.Trainer(
@@ -284,6 +284,7 @@ def run(cfg):
         module=world_model,
         data=data,
         ckpt_path=f"{cache_dir}/{cfg.output_model_name}_weights.ckpt",
+        seed=cfg.seed
     )
     manager()
 

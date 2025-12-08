@@ -1,0 +1,114 @@
+experiment_group: test
+experiment_name: test_davis_video
+
+globals:
+  NUM_SLOTS: 7
+  SLOT_DIM: 64
+  FEAT_DIM: 384
+  NUM_PATCHES: 196
+
+dataset:
+  train_shards: "ytvis2021_resized/ytvis-train-{000000..000000}.tar"
+  val_shards: "ytvis2021_resized/ytvis-validation-{000000..000000}.tar"
+  batch_size: 2
+  val_batch_size: 1 # the length of videos is different, so batch_size is 1.
+  val_size: 10
+  num_workers: 1
+  # here we should be careful if YTVIS 2021
+  # and YTVIS 2019 have the same transformations
+  # for now they are proccessed with the same ytvis transform
+  train_pipeline:
+    chunk_size: 6
+    keys: [video]
+    transforms:
+      name: ytvis_train
+      type: video
+      crop_type: random
+      input_size: 224
+      num_classes: 10
+      h_flip_prob: 0.5
+  val_pipeline:
+    use_chunks: false
+    keys: [video, segmentations]
+    transforms:
+      name: ytvis_val
+      crop_type: central
+      type: video
+      input_size: 224
+      num_classes: 10
+
+trainer:
+  max_steps: 100
+
+optimizer:
+  name: Adam
+  lr: 3e-4
+  lr_scheduler:
+    name: exp_decay_with_warmup
+    warmup_steps: 50
+
+model:
+  input_type: video
+  visualize: true
+  visualize_every_n_steps: 2
+
+  initializer:
+    name: RandomInit
+    n_slots: ${globals.NUM_SLOTS}
+    dim: ${globals.SLOT_DIM}
+
+  encoder:
+    backbone:
+      name: TimmExtractor
+      model: vit_small_patch16_224
+      features: vit_block12
+      frozen: true
+
+  grouper:
+    name: SlotAttention
+    inp_dim: ${globals.FEAT_DIM}
+    slot_dim: ${globals.SLOT_DIM}
+    n_iters: 1
+    use_mlp: false
+
+  decoder:
+    name: MLPDecoder
+    inp_dim: ${globals.SLOT_DIM}
+    outp_dim: ${globals.FEAT_DIM}
+    hidden_dims: [128, 128]
+    n_patches: ${globals.NUM_PATCHES}
+
+  predictor:
+    name: networks.MLP
+    inp_dim: ${globals.SLOT_DIM}
+    outp_dim: ${globals.SLOT_DIM}
+    hidden_dims: [128, 128]
+
+val_metrics:
+  ari:
+    name: VideoARI
+    pred_key: decoder_masks_hard
+    true_key: segmentations
+  image_ari:
+    name: ImageARI
+    video_input: true
+    pred_key: decoder_masks_hard
+    true_key: segmentations
+  mbo:
+    name: VideoIoU
+    matching: overlap
+    ignore_background: false
+    pred_key: decoder_masks_hard
+    true_key: segmentations
+  image_mbo:
+    name: ImageIoU
+    matching: overlap
+    ignore_background: false
+    video_input: true
+    pred_key: decoder_masks_hard
+    true_key: segmentations
+  j_and_f:
+    name: VideoJandF
+    ignore_background: false
+    pred_key: decoder_masks_hard
+    true_key: segmentations

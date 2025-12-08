@@ -1,0 +1,128 @@
+experiment_group: test
+experiment_name: test_movi_c_video
+
+globals:
+  NUM_SLOTS: 7
+  SLOT_DIM: 16
+  FEAT_DIM: 64
+  FEAT_SIZE: 64
+  TARGET_FEAT_DIM: 384
+  NUM_PATCHES: 196
+
+dataset:
+  train_shards: "movi_c/movi_c-train-{000000..000000}.tar"
+  val_shards: "movi_c/movi_c-validation-{000000..000000}.tar"
+  batch_size: 2
+  val_size: 250
+  num_workers: 1
+  train_pipeline:
+    video_size: 24
+    chunk_size: 6
+    keys: [video]
+    duplicate:
+      video: target_video
+    transforms:
+      name: movi_train
+      input_size: 128
+      target_size: 224
+      num_classes: 11
+  val_pipeline:
+    use_chunks: false
+    keys: [video, segmentations]
+    duplicate:
+      video: target_video
+    transforms:
+      name: movi_val
+      input_size: 128
+      target_size: 224
+      num_classes: 11
+
+trainer:
+  max_steps: 100
+
+optimizer:
+  name: Adam
+  lr: 3e-4
+  lr_scheduler:
+    name: exp_decay_with_warmup
+    warmup_steps: 50
+
+model:
+  input_type: video
+  target_encoder_input: target_video
+  visualize: true
+  visualize_every_n_steps: 2
+  masks_to_visualize: [decoder, grouping]
+
+  initializer:
+    name: RandomInit
+    n_slots: ${globals.NUM_SLOTS}
+    dim: ${globals.SLOT_DIM}
+
+  encoder:
+    backbone:
+      name: networks.savi_cnn_encoder
+    pos_embed:
+      name: utils.CoordinatePositionEmbed
+      dim: ${globals.FEAT_DIM}
+      size: ${globals.FEAT_SIZE}
+    output_transform:
+      name: networks.two_layer_mlp
+      inp_dim: ${globals.FEAT_DIM}
+      outp_dim: ${globals.SLOT_DIM}
+      hidden_dim: ${globals.SLOT_DIM}
+      layer_norm: true
+    spatial_flatten: true
+
+  target_encoder:
+    backbone:
+      name: TimmExtractor
+      model: vit_small_patch16_224
+      features: vit_block12
+      frozen: true
+
+  grouper:
+    name: SlotAttention
+    inp_dim: ${globals.SLOT_DIM}
+    slot_dim: ${globals.SLOT_DIM}
+    n_iters: 1
+    use_mlp: false
+
+  decoder:
+    name: MLPDecoder
+    inp_dim: ${globals.SLOT_DIM}
+    outp_dim: ${globals.TARGET_FEAT_DIM}
+    hidden_dims: [128, 128]
+    n_patches: ${globals.NUM_PATCHES}
+
+  predictor:
+    name: networks.MLP
+    inp_dim: ${globals.SLOT_DIM}
+    outp_dim: ${globals.SLOT_DIM}
+    hidden_dims: [128, 128]
+
+val_metrics:
+  ari:
+    name: VideoARI
+    ignore_background: true
+    pred_key: decoder_masks_hard
+    true_key: segmentations
+  image_ari:
+    name: ImageARI
+    ignore_background: true
+    video_input: true
+    pred_key: decoder_masks_hard
+    true_key: segmentations
+  mbo:
+    name: VideoIoU
+    matching: overlap
+    ignore_background: true
+    pred_key: decoder_masks_hard
+    true_key: segmentations
+  image_mbo:
+    name: ImageIoU
+    matching: overlap
+    ignore_background: true
+    video_input: true
+    pred_key: decoder_masks_hard
+    true_key: segmentations
