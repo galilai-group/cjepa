@@ -14,10 +14,14 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from transformers import AutoModel
 import wandb
-from videosaur import  models
+from custom_models.dinowm_oc import OCWM
+
 from data import VideoStepsDataset
+import os
+import gdown
 
-
+import sys, importlib; sys.modules["videosaur"] = importlib.import_module("videosaur.videosaur")
+from videosaur import  models
 
 DINO_PATCH_SIZE = 14  # DINO encoder uses 14x14 patches
 
@@ -27,39 +31,59 @@ DINO_PATCH_SIZE = 14  # DINO encoder uses 14x14 patches
 # ============================================================================
 def get_data(cfg):
     """Setup dataset with image transforms and normalization."""
-    
-    # Image size must be multiple of DINO patch size (14)
-    # img_size = (cfg.image_size // cfg.patch_size) * DINO_PATCH_SIZE
-    img_size = cfg.image_size
 
-    transform = torchvision.transforms.Compose(
-            [
-                torchvision.transforms.ToPILImage(),
-                torchvision.transforms.CenterCrop(img_size),
-                torchvision.transforms.Resize(img_size),
-                torchvision.transforms.ToTensor(),
-                torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-            ]
+    def get_img_pipeline(key, target, img_size=224):
+        return spt.data.transforms.Compose(
+            spt.data.transforms.ToImage(
+                **spt.data.dataset_stats.ImageNet,
+                source=key,
+                target=target,
+            ),
+            spt.data.transforms.Resize(img_size, source=key, target=target),
+            spt.data.transforms.CenterCrop(img_size, source=key, target=target),
         )
-    train_set = VideoStepsDataset(
+
+    def norm_col_transform(dataset, col="pixels"):
+        """Normalize column to zero mean, unit variance."""
+        data = dataset[col][:]
+        mean = data.mean(0).unsqueeze(0)
+        std = data.std(0).unsqueeze(0)
+        return lambda x: (x - mean) / std
+
+    dataset = swm.data.VideoDataset(
         cfg.dataset_name,
         num_steps=cfg.n_steps,
         frameskip=cfg.frameskip,
-        cache_dir=None,
-        split="train",
-        transform=transform
+        transform=None,
+        cache_dir=cfg.get("cache_dir", None),
     )
 
-    val_set = VideoStepsDataset(
-        cfg.dataset_name,
-        num_steps=cfg.n_steps,
-        frameskip=cfg.frameskip,
-        cache_dir=None,
-        split="validation",
-        transform=transform
+    # Image size must be multiple of DINO patch size (14)
+    img_size = (cfg.image_size // cfg.patch_size) * DINO_PATCH_SIZE
+
+    # norm_action_transform = norm_col_transform(dataset.dataset, "action")
+    # norm_proprio_transform = norm_col_transform(dataset.dataset, "proprio")
+
+    # Apply transforms to all steps
+    transform = spt.data.transforms.Compose(
+        *[get_img_pipeline(f"{col}.{i}", f"{col}.{i}", img_size) for col in ["pixels"] for i in range(cfg.n_steps)],
+        # spt.data.transforms.WrapTorchTransform(
+        #     norm_action_transform,
+        #     source="action",
+        #     target="action",
+        # ),
+        # spt.data.transforms.WrapTorchTransform(
+        #     norm_proprio_transform,
+        #     source="proprio",
+        #     target="proprio",
+        # ),
     )
-    
+
+    dataset.transform = transform
     rnd_gen = torch.Generator().manual_seed(cfg.seed)
+    train_set, val_set = spt.data.random_split(
+        dataset, lengths=[cfg.train_split, 1 - cfg.train_split], generator=rnd_gen
+    )
     logging.info(f"Train: {len(train_set)}, Val: {len(val_set)}")
 
     train = DataLoader(
@@ -88,7 +112,6 @@ def get_world_model(cfg):
     def forward(self, batch, stage):
         """Forward: encode observations, predict next states, compute losses."""
 
-        #[8, 4, 3, 518, 518]
         # Encode all timesteps into latent embeddings
         batch = self.model.encode(
             batch,
@@ -99,7 +122,7 @@ def get_world_model(cfg):
         # Use history to predict next states
         embedding = batch["embed"][:, : cfg.dinowm.history_size, :, :]  # (B, T-1, patches, dim)
         pred_embedding = self.model.predict(embedding)
-        target_embedding = batch["embed"][:, -cfg.dinowm.num_preds :, :, :]  # (B, T-1, patches, dim)
+        target_embedding = batch["embed"][:, cfg.dinowm.num_preds :, :, :]  # (B, T-1, patches, dim)
 
         # Compute pixel latent prediction loss
         pixels_dim = batch["pixels_embed"].shape[-1]
@@ -107,14 +130,19 @@ def get_world_model(cfg):
 
         # Log all losses
         prefix = "train/" if self.training else "val/"
-        losses_dict = {f"{prefix}{k}": v.detach() for k, v in batch.items() if "_loss" in k}
+        losses_dict = {f"{prefix}{k}": v.detach() for k, v in batch.items() if "loss" in k}
         self.log_dict(losses_dict, on_step=True, sync_dist=True)  # , on_epoch=True, sync_dist=True)
 
         return batch
 
-    # Load frozen DINO encoder
+    # Load  pretrained videosaur model
+    if cfg.model.load_weights == None or not os.path.isfile(cfg.model.load_weights):
+        download_dir = os.path.join(cfg.artifact_dir,"oc-checkpoints")
+        os.makedirs(download_dir, exist_ok=True)
+        gdown.download("https://drive.google.com/file/d/1qZwWyXXTKbUMJYJ_h65QaO4_fgj_8wBL/view?usp=drive_link", os.path.join(download_dir, "oc_ckpt.ckpt"), quiet=False, fuzzy=True)
+        cfg.model.load_weights = os.path.join(download_dir, "oc_ckpt.ckpt")
+
     model = models.build(cfg.model, cfg.dummy_optimizer, None, None)
-    backbone = AutoModel.from_pretrained("facebook/dinov2-small") # yes cls, .last
     encoder = model.encoder # Mapovertime > FrameEncoder > {backbone, output_transform}         # B T C H W > # B T N D
     slot_attention = model.processor # ScanOverTime > LatentProcessor > {Corrector, Predictor}      
     initializer = model.initializer
@@ -150,9 +178,8 @@ def get_world_model(cfg):
         logging.info(f"Action dim: {effective_act_dim}, Proprio dim: {cfg.dinowm.proprio_dim}")
 
     # Assemble world model
-    world_model = swm.wm.OCWM(
+    world_model = OCWM(
         encoder=encoder,
-        backbone = backbone,
         slot_attention=slot_attention,
         initializer = initializer,
         predictor=predictor,
@@ -237,11 +264,11 @@ def run(cfg):
     data = get_data(cfg)
     world_model = get_world_model(cfg)
 
-    cache_dir = swm.data.get_cache_dir()
+    cache_dir = swm.data.utils.get_cache_dir()
     dump_object_callback = ModelObjectCallBack(
         dirpath=cache_dir,
         filename=cfg.output_model_name,
-        epoch_interval=10,
+        epoch_interval=5,
     )
 
     trainer = pl.Trainer(

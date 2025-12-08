@@ -2,8 +2,10 @@
 ```
 conda create -n dino310 python=3.10 -y
 conda activate dino310
-pip install -e stable-pretraining
+pip install -e ./stable-pretraining
+pip install -e ./stable-worldmodel
 pip install einops imageio av
+pip install seaborn webdataset # videosaur
 ```
 if running oc wm
 ```
