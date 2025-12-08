@@ -12,7 +12,6 @@ class OCWM(torch.nn.Module):
     def __init__(
         self,
         encoder,
-        backbone,
         slot_attention, 
         initializer,
         predictor,

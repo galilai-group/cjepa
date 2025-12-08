@@ -133,7 +133,7 @@ def build(
     )
 
     if model_config.load_weights:
-        model.load_weights_from_checkpoint(model_config.load_weights, model_config.modules_to_load)
+        model.load_weights_from_checkpoint(model_config.load_weights, module_mapping=None)
 
     return model
 
@@ -591,7 +591,7 @@ class ObjectCentricModel(pl.LightningModule):
             }
 
     def load_weights_from_checkpoint(
-        self, checkpoint_path: str, module_mapping: Optional[Dict[str, str]] = None
+        self, checkpoint_path: str, module_mapping = None
     ):
         """Load weights from a checkpoint into the specified modules."""
         checkpoint = torch.load(checkpoint_path)

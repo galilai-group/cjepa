@@ -113,7 +113,7 @@ def resolver_eval(fn: str, *args):
     return eval(f"{params}: {body}")(*args)
 
 
-OmegaConf.register_new_resolver("eval", resolver_eval)
+OmegaConf.register_new_resolver("eval_dummy", resolver_eval)
 OmegaConf.register_new_resolver("add", lambda *args: sum(args))
 OmegaConf.register_new_resolver("sub", lambda a, b: a - b)
 OmegaConf.register_new_resolver("mul", lambda *args: reduce(lambda prod, cur: prod * cur, args, 1))

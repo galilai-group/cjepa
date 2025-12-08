@@ -136,7 +136,7 @@ def get_world_model(cfg):
         return batch
 
     # Load  pretrained videosaur model
-    if cfg.model.load_weights == None or not os.path.isfile(cfg.model.load_weights):
+    if cfg.model.load_weights == None and not os.path.isfile(cfg.model.load_weights):
         download_dir = os.path.join(cfg.artifact_dir,"oc-checkpoints")
         os.makedirs(download_dir, exist_ok=True)
         gdown.download("https://drive.google.com/file/d/1qZwWyXXTKbUMJYJ_h65QaO4_fgj_8wBL/view?usp=drive_link", os.path.join(download_dir, "oc_ckpt.ckpt"), quiet=False, fuzzy=True)
@@ -179,9 +179,9 @@ def get_world_model(cfg):
 
     # Assemble world model
     world_model = OCWM(
-        encoder=encoder,
-        slot_attention=slot_attention,
-        initializer = initializer,
+        encoder=spt.backbone.EvalOnly(encoder),
+        slot_attention=spt.backbone.EvalOnly(slot_attention),
+        initializer = spt.backbone.EvalOnly(initializer),
         predictor=predictor,
         action_encoder=action_encoder,
         proprio_encoder=proprio_encoder,
