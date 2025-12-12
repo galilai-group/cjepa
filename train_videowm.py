@@ -8,6 +8,8 @@ import torch
 import torchvision
 from lightning.pytorch.callbacks import Callback, ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
+from lightning.pytorch.strategies import DDPStrategy
+
 from loguru import logger as logging
 from omegaconf import OmegaConf
 from torch.nn import functional as F
@@ -124,7 +126,9 @@ def get_world_model(cfg):
         # Compute pixel latent prediction loss
         pixels_dim = batch["pixels_embed"].shape[-1]
         batch["loss"] = F.mse_loss(pred_embedding, target_embedding.detach())
-
+        B, num_pred, S, D = pred_embedding.shape
+        pred_flat = pred_embedding.reshape(B*num_pred, S*D)
+        batch["predictor_embed"] = pred_flat
         # Log all losses
         prefix = "train/" if self.training else "val/"
         losses_dict = {f"{prefix}{k}": v.detach() for k, v in batch.items() if "loss" in k}
@@ -255,20 +259,38 @@ def run(cfg):
         filename=cfg.output_model_name,
         epoch_interval=1,
     )
-
+    
+    # Setup RankMe callback for monitoring predictor embedding quality
+    num_patches = (cfg.image_size // cfg.patch_size) ** 2
+    callbacks = [dump_object_callback]
+    if cfg.get("monitor_rankme", False):
+        # RankMe uses a queue to track embeddings and compute effective rank
+        rankme_callback = spt.callbacks.RankMe(
+            name="rankme/predictor",
+            target="predictor_embed",
+            queue_length=cfg.get("rankme_queue_length", 2048),
+            target_shape=num_patches * 64,  # S * D flattened
+        )
+        callbacks.append(rankme_callback)
+        logging.info(
+            f"RankMe monitoring enabled (queue_length={cfg.get('rankme_queue_length', 2048)}, "
+            f"target_shape={num_patches * 64})" # numpatches 
+        )
+    strategy=DDPStrategy(find_unused_parameters=True)
     trainer = pl.Trainer(
         **cfg.trainer,
-        callbacks=[dump_object_callback],
+        callbacks=callbacks,
         num_sanity_val_steps=1,
         logger=wandb_logger,
         enable_checkpointing=True,
+        strategy=strategy,
     )
 
     manager = spt.Manager(
         trainer=trainer,
         module=world_model,
         data=data,
-        ckpt_path=f"{cfg.cache_dir}/{cfg.output_model_name}_weights.ckpt",
+        ckpt_path=f"{cache_dir}/{cfg.output_model_name}_weights.ckpt",
         seed=cfg.seed
     )
     manager()

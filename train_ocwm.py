@@ -8,6 +8,8 @@ import torch
 import torchvision
 from lightning.pytorch.callbacks import Callback, ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
+from lightning.pytorch.strategies import DDPStrategy
+
 from loguru import logger as logging
 from omegaconf import OmegaConf
 from torch.nn import functional as F
@@ -125,6 +127,9 @@ def get_world_model(cfg):
         # Compute pixel latent prediction loss
         pixels_dim = batch["pixels_embed"].shape[-1]
         batch["loss"] = F.mse_loss(pred_embedding, target_embedding.detach())
+        B, num_pred, S, D = pred_embedding.shape
+        pred_flat = pred_embedding.reshape(B*num_pred, S*D)
+        batch["predictor_embed"] = pred_flat
 
         # Log all losses
         prefix = "train/" if self.training else "val/"
@@ -133,9 +138,9 @@ def get_world_model(cfg):
 
         return batch
 
-    # Load  pretrained videosaur model
-    if cfg.model.load_weights == None and not os.path.isfile(cfg.model.load_weights):
-        download_dir = os.path.join(cfg.artifact_dir,"oc-checkpoints")
+    # Load pretrained videosaur model
+    if cfg.model.load_weights is None or not os.path.isfile(cfg.model.load_weights):
+        download_dir = os.path.join(cfg.artifact_dir, "oc-checkpoints")
         os.makedirs(download_dir, exist_ok=True)
         gdown.download("https://drive.google.com/file/d/1qZwWyXXTKbUMJYJ_h65QaO4_fgj_8wBL/view?usp=drive_link", os.path.join(download_dir, "oc_ckpt.ckpt"), quiet=False, fuzzy=True)
         cfg.model.load_weights = os.path.join(download_dir, "oc_ckpt.ckpt")
@@ -268,13 +273,30 @@ def run(cfg):
         filename=cfg.output_model_name,
         epoch_interval=1,
     )
-
+    
+    # Setup RankMe callback for monitoring predictor embedding quality
+    callbacks = [dump_object_callback]
+    if cfg.get("monitor_rankme", False):
+        # RankMe uses a queue to track embeddings and compute effective rank
+        rankme_callback = spt.callbacks.RankMe(
+            name="rankme/predictor",
+            target="predictor_embed",
+            queue_length=cfg.get("rankme_queue_length", 2048),
+            target_shape=cfg.videosaur.NUM_SLOTS * 64,  # S * D flattened
+        )
+        callbacks.append(rankme_callback)
+        logging.info(
+            f"RankMe monitoring enabled (queue_length={cfg.get('rankme_queue_length', 2048)}, "
+            f"target_shape={cfg.videosaur.NUM_SLOTS * 64})"
+        )
+    strategy=DDPStrategy(find_unused_parameters=True)
     trainer = pl.Trainer(
         **cfg.trainer,
-        callbacks=[dump_object_callback],
+        callbacks=callbacks,
         num_sanity_val_steps=1,
         logger=wandb_logger,
         enable_checkpointing=True,
+        strategy=strategy,
     )
 
     manager = spt.Manager(
