@@ -1,0 +1,127 @@
+# Test/Evaluation Configuration for VideoWM
+# This config is used for evaluating a trained world model checkpoint
+
+defaults:
+  - _self_
+  - override hydra/hydra_logging: disabled
+  - override hydra/job_logging: disabled
+
+hydra:
+  output_subdir: null
+
+# Dataset configuration (use validation or test split)
+dataset_name: clevrer_train
+cache_dir: "/users/hnam16/scratch/.stable_worldmodel"
+training_type: video # options: video, wm
+
+# For evaluation 
+num_batches: 50
+
+
+# Checkpoint path - REQUIRED: must exist or evaluation will fail
+checkpoint_path: null  # Override with: checkpoint_path=/path/to/model_weights.ckpt
+
+# Videosaur model config for DINO encoder
+videosaur:
+  NUM_SLOTS: 7
+  SLOT_DIM: 64
+  DINO_MODEL: vit_small_patch14_dinov2.lvd142m
+  FEAT_DIM: 384
+  NUM_PATCHES: 196
+
+# Model configuration for building DINO encoder
+model:
+  load_weights: null  # Will use pretrained weights automatically
+  modules_to_load: null
+
+# Model architecture must match training configuration
+image_size: 224
+patch_size: 16
+train_split: 0.8
+
+# Same dinowm configuration as training
+dinowm:
+  history_size: 3
+  num_preds: 1
+  proprio_dim: 4
+  proprio_embed_dim: 10
+  action_dim: 2
+  action_embed_dim: 10
+
+predictor:
+  depth: 6
+  heads: 16
+  mlp_dim: 2048
+  dim_head: 64
+  dropout: 0.1
+  emb_dropout: 0.0
+
+# Evaluation parameters
+batch_size: 32
+num_workers: 8
+seed: 42
+
+
+
+n_steps:  ${eval:'${dinowm.num_preds} + ${dinowm.history_size}'}
+frameskip: 5
+
+# Metrics to compute
+metrics:
+  rankme:
+    enabled: true
+    min_batch_size: 512  # Accumulate embeddings across batches
+  effective_rank:
+    enabled: false
+  frechet_joint_distance:
+    enabled: true
+  feature_rollout_degradation:
+    enabled: true
+    num_rollout_steps: 5
+
+# Dynamics Visualization (Physics-Inspired Trajectory Analysis)
+# These visualizations highlight temporal continuity and interaction events
+visualization:
+  enabled: false
+  
+  # 1. Latent Energy Trajectory: 3D PCA with velocity coloring
+  # Shows interaction events through rapid latent state changes
+  latent_trajectory:
+    enabled: true
+    # Interpretation: Blue=stable regions, Red=interaction events
+    # Requires single-video embeddings (T, D) shape
+  
+  # 2. Phase Space Plot: State Norm vs Temporal Derivative
+  # Visualizes dynamics as attractors and transitions
+  phase_space:
+    enabled: true
+    # Interpretation: Small loops=stable states, Excursions=interactions
+  
+  # 3. Slot Interaction Dynamics: Multi-object trajectories in latent space
+  # Demonstrates object-level dynamics and collision patterns
+  slot_interaction:
+    enabled: false
+    # Note: Requires slot-based representations (unavailable for VideoWM)
+  
+  # 4. Vector Field of Future Predictions: JEPA-style flow visualization
+  # Shows learned dynamics as flow field in latent space
+  vector_field:
+    enabled: true
+    # Interpretation: Laminar=predictable, Turbulent=interactions
+  
+  # 5. Temporal Self-Similarity Matrix: Block structure reveals phase changes
+  # Shows repeated states and interaction-induced partitions
+  temporal_similarity:
+    enabled: false
+    # Interpretation: Diagonal band=continuity, Blocks=phases
+  
+  # 6. Temporal Distance Matrix: L2 distances over time
+  # Alternative view emphasizing state space structure
+  temporal_distance:
+    enabled: false
+    window_size: 1  # Median filter window (1=no smoothing)
+
+# Output
+output_dir: "./eval_results"
+save_embeddings: false  # Set to true to save all embeddings for analysis
+visualization_dir: null  # If null, defaults to output_dir/visualizations

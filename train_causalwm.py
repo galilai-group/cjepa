@@ -14,7 +14,9 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from transformers import AutoModel
 import wandb
-from custom_models.dinowm_oc import OCWM
+from custom_models.dinowm_causal import CausalWM
+
+from data import VideoStepsDataset
 import os
 import gdown
 
@@ -155,13 +157,18 @@ def get_world_model(cfg):
     logging.info(f"Patches: {num_patches}, Embedding dim: {embedding_dim}")
 
     # Build causal predictor (transformer that predicts next latent states)
-    predictor = swm.wm.dinowm.CausalPredictor(
+    # predictor = swm.wm.dinowm.CausalPredictor(
+    #     num_patches=num_patches,
+    #     num_frames=cfg.dinowm.history_size,
+    #     dim=embedding_dim,
+    #     **cfg.predictor,
+    # )
+    predictor = CausalMaskingPredictor(
         num_patches=num_patches,
         num_frames=cfg.dinowm.history_size,
         dim=embedding_dim,
         **cfg.predictor,
     )
-
     # Build action and proprioception encoders
     if cfg.training_type == "video":    
         action_encoder = None
@@ -176,7 +183,7 @@ def get_world_model(cfg):
         logging.info(f"Action dim: {effective_act_dim}, Proprio dim: {cfg.dinowm.proprio_dim}")
 
     # Assemble world model
-    world_model = OCWM(
+    world_model = CausalWM(
         encoder=spt.backbone.EvalOnly(encoder),
         slot_attention=spt.backbone.EvalOnly(slot_attention),
         initializer = spt.backbone.EvalOnly(initializer),
