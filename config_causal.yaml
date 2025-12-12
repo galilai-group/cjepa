@@ -15,7 +15,7 @@ wandb:
 
 
 monitor_rankme: true                 
-rankme_queue_length: 1024 
+rankme_queue_length: 2048 
 
 dataset_name: clevrer_train
 cache_dir: "/cs/data/people/hnam16/.stable_worldmodel"
@@ -25,7 +25,7 @@ training_type: video  # options: video, wm
 
 trainer:
   max_epochs: 100
-  strategy: ddp 
+  # strategy: ddp 
   devices: auto
   accelerator: gpu 
   precision: 16-mixed
@@ -190,6 +190,4 @@ dummy_trainer:
   log_every_n_steps: 1
   val_check_interval: 1000
   gradient_clip_val: 0.05
-dummy_optimizer:
-  type: "adam"
-  lr: 1e-4
+

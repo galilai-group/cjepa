@@ -8,6 +8,8 @@ import torch
 import torchvision
 from lightning.pytorch.callbacks import Callback, ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
+from lightning.pytorch.strategies import DDPStrategy
+
 from loguru import logger as logging
 from omegaconf import OmegaConf
 from torch.nn import functional as F
@@ -138,13 +140,9 @@ def get_world_model(cfg):
             pred_output = self.model.predict(embedding, return_mask_info=True)
             if pred_output[1] is not None:  # mask_indices available
                 pred_embedding, mask_indices, T = pred_output
-                # pred_embedding: (B, T+num_pred, S, 64) when causal_mask_predict=True
-                
-                # Get target: future slots
+
                 target_embedding = batch["embed"][:, cfg.dinowm.history_size : cfg.dinowm.history_size + cfg.dinowm.num_preds, :, :]  # (B, num_pred, S, 64)
                 
-                # Compute selective loss
-                # Split predictions: (B, T, S, 64) and (B, num_pred, S, 64)
                 pred_history = pred_embedding[:, :T, :, :]      # (B, T, S, 64)
                 pred_future = pred_embedding[:, T:, :, :]       # (B, num_pred, S, 64)
                 
@@ -159,33 +157,25 @@ def get_world_model(cfg):
                 else:
                     loss_masked_history = torch.tensor(0.0, device=pred_embedding.device)
                 
-                # Loss 2: All slots in future
                 loss_future = F.mse_loss(pred_future, target_embedding.detach())
-                
-                # Total loss
                 batch["loss"] = loss_masked_history + loss_future
                 batch["loss_masked_history"] = loss_masked_history
                 batch["loss_future"] = loss_future
-            else:
-                # Old-style predictor without mask info - use default loss
-                pred_embedding = pred_output[0]
-                target_embedding = batch["embed"][:, cfg.dinowm.history_size : cfg.dinowm.history_size + cfg.dinowm.num_preds, :, :]
-                pred_embedding = pred_embedding[:, cfg.dinowm.history_size:, :, :]
-                batch["loss"] = F.mse_loss(pred_embedding, target_embedding.detach())
         else:
-            # causal_mask_predict=False: Only predict future
             pred_embedding = self.model.predict(embedding)  # (B, num_pred, S, 64)
             target_embedding = batch["embed"][:, cfg.dinowm.history_size : cfg.dinowm.history_size + cfg.dinowm.num_preds, :, :]
             batch["loss"] = F.mse_loss(pred_embedding, target_embedding.detach())
         
-        # Store predictor embeddings for RankMe monitoring during validation
-        if not self.training:
-            # Flatten predictions for RankMe: (B, T, S, D) or (B, num_pred, S, D) -> (B, T*S*D)
-            if cfg.get("causal_mask_predict", False) and isinstance(pred_output, tuple) and len(pred_output) > 0:
-                pred_flat = pred_output[0].reshape(pred_output[0].shape[0], -1)  # (B, T*S*D)
-            else:
-                pred_flat = pred_embedding.reshape(pred_embedding.shape[0], -1)  # (B, num_pred*S*D)
-            batch["predictor_embed"] = pred_flat
+        # Flatten predictions for RankMe: (B, T, S, D) or (B, num_pred, S, D) -> (B*T, S*D) or (B*num_pred, S*D)
+        if cfg.get("causal_mask_predict", False) and isinstance(pred_output, tuple) and len(pred_output) > 0:
+            # (B, T, S, D) -> (B*T, S*D)
+            B, T, S, D = pred_output[0].shape
+            pred_flat = pred_output[0].reshape(B*T, S*D)
+        else:
+            # (B, num_pred, S, D) -> (B*num_pred, S*D)
+            B, num_pred, S, D = pred_embedding.shape
+            pred_flat = pred_embedding.reshape(B*num_pred, S*D)
+        batch["predictor_embed"] = pred_flat
 
         # Log all losses
         prefix = "train/" if self.training else "val/"
@@ -352,13 +342,14 @@ def run(cfg):
             f"RankMe monitoring enabled (queue_length={cfg.get('rankme_queue_length', 2048)}, "
             f"target_shape={cfg.videosaur.NUM_SLOTS * 64})"
         )
-
+    strategy=DDPStrategy(find_unused_parameters=True)
     trainer = pl.Trainer(
         **cfg.trainer,
         callbacks=callbacks,
         num_sanity_val_steps=1,
         logger=wandb_logger,
         enable_checkpointing=True,
+        strategy=strategy,
     )
 
     manager = spt.Manager(
