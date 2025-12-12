@@ -97,20 +97,37 @@ class CausalWM(torch.nn.Module):
 
         return info
 
-    def predict(self, embedding):
+    def predict(self, embedding, return_mask_info=False):
         """predict next latent state
         Args:
-            embedding: (B, T, P, d)
+            embedding: (B, T, P, d) - P can be num_patches or num_slots
+            return_mask_info: if True, return (preds, mask_indices, T) for MaskedSlotPredictor
         Returns:
-            preds: (B, T, P, d)
+            preds: (B, T, P, d) for old-style or (B, num_pred, P, d) for MaskedSlotPredictor
+            (optionally) mask_info: (mask_indices, T) for selective loss computation
         """
-
-        T = embedding.shape[1]
-        embedding = rearrange(embedding, "b t p d -> b (t p) d")
-        preds = self.predictor(embedding)
-        preds = rearrange(preds, "b (t p) d -> b t p d", t=T)
-
-        return preds
+        
+        # Check if using MaskedSlotPredictor (slots format) or old predictor (patches format)
+        if hasattr(self.predictor, 'num_slots'):
+            # MaskedSlotPredictor: input is already (B, T, S, D)
+            # embedding shape: (B, T, S, 64)
+            if return_mask_info:
+                preds, mask_indices, T = self.predictor(embedding, return_mask_info=True)
+                return preds, mask_indices, T
+            else:
+                preds = self.predictor(embedding, return_mask_info=False)
+                return preds
+            # Output: (B, num_pred, S, 64) or (B, T+num_pred, S, 64)
+        else:
+            # Old-style predictor: flatten and unflatten
+            T = embedding.shape[1]
+            embedding = rearrange(embedding, "b t p d -> b (t p) d")
+            preds = self.predictor(embedding)
+            preds = rearrange(preds, "b (t p) d -> b t p d", t=T)
+            if return_mask_info:
+                return preds, None, T
+            else:
+                return preds
 
     def decode(self, info):
         assert "pixels_embed" in info, "pixels_embed not in info_dict"
@@ -379,38 +396,6 @@ class Embedder(torch.nn.Module):
         return x
 
 
-class CausalPredictor(nn.Module):
-    def __init__(
-        self,
-        *,
-        num_patches,
-        num_frames,
-        dim,
-        depth,
-        heads,
-        mlp_dim,
-        pool="cls",
-        dim_head=64,
-        dropout=0.0,
-        emb_dropout=0.0,
-    ):
-        super().__init__()
-        assert pool in {"cls", "mean"}, "pool type must be either cls (cls token) or mean (mean pooling)"
-
-        self.num_patches = num_patches
-        self.num_frames = num_frames
-
-        self.pos_embedding = nn.Parameter(torch.randn(1, num_frames * (num_patches), dim))  # dim for the pos encodings
-        self.dropout = nn.Dropout(emb_dropout)
-        self.transformer = Transformer(dim, depth, heads, dim_head, mlp_dim, dropout, num_patches, num_frames)
-        self.pool = pool
-
-    def forward(self, x):  # x: (b, window_size * H/patch_size * W/patch_size, 384)
-        b, n, _ = x.shape
-        x = x + self.pos_embedding[:, :n]
-        x = self.dropout(x)
-        x = self.transformer(x)
-        return x
 
 
 class FeedForward(nn.Module):

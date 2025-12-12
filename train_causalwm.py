@@ -15,6 +15,7 @@ from torch.utils.data import DataLoader
 from transformers import AutoModel
 import wandb
 from custom_models.dinowm_causal import CausalWM
+from custom_models.cjepa_predictor import MaskedSlotPredictor
 
 from data import VideoStepsDataset
 import os
@@ -107,41 +108,98 @@ def get_data(cfg):
 # Model Architecture
 # ============================================================================
 def get_world_model(cfg):
-    """Build world model: frozen DINO encoder + trainable causal predictor."""
+    """Build world model: frozen videosaur encoder + masked slot predictor."""
 
     def forward(self, batch, stage):
-        """Forward: encode observations, predict next states, compute losses."""
+        """Forward: encode observations, predict next slot states, compute losses.
+        
+        Loss computation modes:
+        - causal_mask_predict=False: Only predict future, loss on all future slots
+        - causal_mask_predict=True: Predict masked slots + future
+          Loss only on:
+            * Masked slots in history frames (recovering masked content)
+            * All slots in future frames
+        """
 
-        # Encode all timesteps into latent embeddings
+        # Encode all timesteps into slot embeddings via videosaur
         batch = self.model.encode(
             batch,
             target="embed",
             pixels_key="pixels"
         )
+        # batch["embed"]: (B, T, S, 64) where S=num_slots, T=n_steps
 
         # Use history to predict next states
-        embedding = batch["embed"][:, : cfg.dinowm.history_size, :, :]  # (B, T-1, patches, dim)
-        pred_embedding = self.model.predict(embedding)
-        target_embedding = batch["embed"][:, cfg.dinowm.num_preds :, :, :]  # (B, T-1, patches, dim)
-
-        # Compute pixel latent prediction loss
-        pixels_dim = batch["pixels_embed"].shape[-1]
-        batch["loss"] = F.mse_loss(pred_embedding, target_embedding.detach())
+        embedding = batch["embed"][:, : cfg.dinowm.history_size, :, :]  # (B, history_size, S, 64)
+        
+        # Get predictions with mask info for selective loss computation
+        if cfg.get("causal_mask_predict", False):
+            # Request mask information for selective loss
+            pred_output = self.model.predict(embedding, return_mask_info=True)
+            if pred_output[1] is not None:  # mask_indices available
+                pred_embedding, mask_indices, T = pred_output
+                # pred_embedding: (B, T+num_pred, S, 64) when causal_mask_predict=True
+                
+                # Get target: future slots
+                target_embedding = batch["embed"][:, cfg.dinowm.history_size : cfg.dinowm.history_size + cfg.dinowm.num_preds, :, :]  # (B, num_pred, S, 64)
+                
+                # Compute selective loss
+                # Split predictions: (B, T, S, 64) and (B, num_pred, S, 64)
+                pred_history = pred_embedding[:, :T, :, :]      # (B, T, S, 64)
+                pred_future = pred_embedding[:, T:, :, :]       # (B, num_pred, S, 64)
+                
+                # Loss 1: Masked slots in history (what was masked should be recovered)
+                if mask_indices.sum() > 0:
+                    # Only compute loss on masked slots
+                    gt_history = embedding[:, :, :, :]  # Ground truth history (unmasked)
+                    loss_masked_history = F.mse_loss(
+                        pred_history[:, :, mask_indices, :],
+                        gt_history[:, :, mask_indices, :].detach()
+                    )
+                else:
+                    loss_masked_history = torch.tensor(0.0, device=pred_embedding.device)
+                
+                # Loss 2: All slots in future
+                loss_future = F.mse_loss(pred_future, target_embedding.detach())
+                
+                # Total loss
+                batch["loss"] = loss_masked_history + loss_future
+                batch["loss_masked_history"] = loss_masked_history
+                batch["loss_future"] = loss_future
+            else:
+                # Old-style predictor without mask info - use default loss
+                pred_embedding = pred_output[0]
+                target_embedding = batch["embed"][:, cfg.dinowm.history_size : cfg.dinowm.history_size + cfg.dinowm.num_preds, :, :]
+                pred_embedding = pred_embedding[:, cfg.dinowm.history_size:, :, :]
+                batch["loss"] = F.mse_loss(pred_embedding, target_embedding.detach())
+        else:
+            # causal_mask_predict=False: Only predict future
+            pred_embedding = self.model.predict(embedding)  # (B, num_pred, S, 64)
+            target_embedding = batch["embed"][:, cfg.dinowm.history_size : cfg.dinowm.history_size + cfg.dinowm.num_preds, :, :]
+            batch["loss"] = F.mse_loss(pred_embedding, target_embedding.detach())
+        
+        # Store predictor embeddings for RankMe monitoring during validation
+        if not self.training:
+            # Flatten predictions for RankMe: (B, T, S, D) or (B, num_pred, S, D) -> (B, T*S*D)
+            if cfg.get("causal_mask_predict", False) and isinstance(pred_output, tuple) and len(pred_output) > 0:
+                pred_flat = pred_output[0].reshape(pred_output[0].shape[0], -1)  # (B, T*S*D)
+            else:
+                pred_flat = pred_embedding.reshape(pred_embedding.shape[0], -1)  # (B, num_pred*S*D)
+            batch["predictor_embed"] = pred_flat
 
         # Log all losses
         prefix = "train/" if self.training else "val/"
         losses_dict = {f"{prefix}{k}": v.detach() for k, v in batch.items() if "loss" in k}
-        self.log_dict(losses_dict, on_step=True, sync_dist=True)  # , on_epoch=True, sync_dist=True)
+        self.log_dict(losses_dict, on_step=True, sync_dist=True)
 
         return batch
 
-    # Load  pretrained videosaur model
-    if cfg.model.load_weights == None and not os.path.isfile(cfg.model.load_weights):
-        download_dir = os.path.join(cfg.artifact_dir,"oc-checkpoints")
+    # Load pretrained videosaur model
+    if cfg.model.load_weights is None or not os.path.isfile(cfg.model.load_weights):
+        download_dir = os.path.join(cfg.artifact_dir, "oc-checkpoints")
         os.makedirs(download_dir, exist_ok=True)
         gdown.download("https://drive.google.com/file/d/1qZwWyXXTKbUMJYJ_h65QaO4_fgj_8wBL/view?usp=drive_link", os.path.join(download_dir, "oc_ckpt.ckpt"), quiet=False, fuzzy=True)
         cfg.model.load_weights = os.path.join(download_dir, "oc_ckpt.ckpt")
-
     model = models.build(cfg.model, cfg.dummy_optimizer, None, None)
     encoder = model.encoder 
     slot_attention = model.processor 
@@ -156,18 +214,21 @@ def get_world_model(cfg):
 
     logging.info(f"Patches: {num_patches}, Embedding dim: {embedding_dim}")
 
-    # Build causal predictor (transformer that predicts next latent states)
-    # predictor = swm.wm.dinowm.CausalPredictor(
-    #     num_patches=num_patches,
-    #     num_frames=cfg.dinowm.history_size,
-    #     dim=embedding_dim,
-    #     **cfg.predictor,
-    # )
-    predictor = CausalMaskingPredictor(
-        num_patches=num_patches,
-        num_frames=cfg.dinowm.history_size,
-        dim=embedding_dim,
-        **cfg.predictor,
+    # Build masked slot predictor (V-JEPA style)
+    predictor = MaskedSlotPredictor(
+        num_slots=num_patches,  # S: number of slots
+        slot_dim=embedding_dim,  # 64 or higher if action/proprio included
+        num_frames=cfg.dinowm.history_size,  # T: history length
+        num_pred=cfg.dinowm.num_preds,  # number of future frames to predict
+        num_masked_slots=cfg.get("num_masked_slots", 2),  # M: number of slots to mask
+        causal_mask_predict=cfg.get("causal_mask_predict", True),  # predict masked slots?
+        seed=cfg.seed,  # for reproducible masking
+        depth=cfg.predictor.get("depth", 6),
+        heads=cfg.predictor.get("heads", 16),
+        dim_head=cfg.predictor.get("dim_head", 64),
+        mlp_dim=cfg.predictor.get("mlp_dim", 2048),
+        dropout=cfg.predictor.get("dropout", 0.1),
+        emb_dropout=cfg.predictor.get("emb_dropout", 0.0),
     )
     # Build action and proprioception encoders
     if cfg.training_type == "video":    
@@ -261,7 +322,7 @@ class ModelObjectCallBack(Callback):
 # ============================================================================
 # Main Entry Point
 # ============================================================================
-@hydra.main(version_base=None, config_path="./", config_name="config_oc")
+@hydra.main(version_base=None, config_path="./", config_name="config_causal")
 def run(cfg):
     """Run training of predictor"""
 
@@ -275,10 +336,26 @@ def run(cfg):
         filename=cfg.output_model_name,
         epoch_interval=1,
     )
+    
+    # Setup RankMe callback for monitoring predictor embedding quality
+    callbacks = [dump_object_callback]
+    if cfg.get("monitor_rankme", False):
+        # RankMe uses a queue to track embeddings and compute effective rank
+        rankme_callback = spt.callbacks.RankMe(
+            name="rankme/predictor",
+            target="predictor_embed",
+            queue_length=cfg.get("rankme_queue_length", 2048),
+            target_shape=cfg.videosaur.NUM_SLOTS * 64,  # S * D flattened
+        )
+        callbacks.append(rankme_callback)
+        logging.info(
+            f"RankMe monitoring enabled (queue_length={cfg.get('rankme_queue_length', 2048)}, "
+            f"target_shape={cfg.videosaur.NUM_SLOTS * 64})"
+        )
 
     trainer = pl.Trainer(
         **cfg.trainer,
-        callbacks=[dump_object_callback],
+        callbacks=callbacks,
         num_sanity_val_steps=1,
         logger=wandb_logger,
         enable_checkpointing=True,
