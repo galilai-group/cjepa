@@ -91,25 +91,55 @@ def evaluate_videowm(cfg):
     
     cache_dir = cfg.get("cache_dir", None)
     img_size = (cfg.image_size // cfg.patch_size) * DINO_PATCH_SIZE
-    evaluation = EvalFramework(world_model, cfg.datset_name, cache_dir, img_size)
-    eval_dataset = evaluation.pull_eval_data(cfg.n_steps,cfg.frameskip)
+    
+    evaluation = EvalFramework(
+        world_model, 
+        cfg.dataset_name, 
+        cache_dir, 
+        img_size,
+        metrics=cfg.metrics,
+        device=device
+    )
+    
+    eval_dataset = evaluation.pull_eval_data(
+        cfg.n_steps,
+        cfg.frameskip,
+        seed=cfg.seed,
+        train_split=cfg.get('train_split', 0.8)
+    )
     eval_loader = DataLoader(eval_dataset, batch_size=cfg.batch_size, num_workers=cfg.num_workers, pin_memory=True)
     
     num_batches = cfg.get('num_batches', None)
     if cfg.metrics.rankme.enabled:
         min_num_batches = cfg.metrics.rankme.min_batch_size // cfg.batch_size + 1
-        if num_batches < min_num_batches:
+        if num_batches is None or num_batches < min_num_batches:
             logging.info(f"RankMe needs at least {min_num_batches} batches : [CFG] {num_batches} >> [Updated] {min_num_batches}")
             num_batches = min_num_batches
-    pred_embeddings_all, target_embeddings_all = evaluation.get_eval_embeddings(eval_loader, world_model, num_batches)
+    
+    pred_embeddings_all, target_embeddings_all = evaluation.get_eval_embeddings(
+        eval_loader,
+        history_size=cfg.dinowm.history_size,
+        num_preds=cfg.dinowm.num_preds,
+        num_batches=num_batches
+    )
     
     logging.info(f"Total accumulated embeddings: {pred_embeddings_all.shape}")
+
+    rollout_dataset = evaluation.pull_eval_data(
+        cfg.dinowm.history_size+cfg.metrics.feature_rollout_degradation.num_steps,
+        cfg.frameskip,
+        seed=cfg.seed,
+        train_split=cfg.get('train_split', 0.8)
+    )
+    rollout_loader = DataLoader(rollout_dataset, batch_size=cfg.batch_size, num_workers=cfg.num_workers, pin_memory=True)
 
     results = evaluation.calculate_metrics( 
             pred_embeddings_all, 
             target_embeddings_all,
-            rollout_loader=None,
-            rollout_batches=None
+            rollout_loader=rollout_loader if cfg.metrics.feature_rollout_degradation.enabled else None,
+            rollout_batches=cfg.get('rollout_batches', None),
+            history_size=cfg.dinowm.history_size,
+            num_preds=cfg.dinowm.num_preds
             )
     # Save results
     output_dir = Path(cfg.get('output_dir', './eval_results'))

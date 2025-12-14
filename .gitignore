@@ -10,6 +10,7 @@ wandb/
 temp/*
 output*.txt
 **/*.ckpt
+**/*.mp4
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
