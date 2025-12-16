@@ -179,6 +179,41 @@ class MaskedSlotPredictor(nn.Module):
         # - Unmasked slots at t >= T_hist (Future) remain as "Query Input".
         
         return final_input, masked_indices
+    
+    @torch.no_grad()
+    def inference(self, x):
+        """
+        Inference function.
+        Args:
+            x: (B, T_hist, S, D) - Fully visible history
+        Returns:
+            future_prediction: (B, T_pred, S, D)
+        """
+        B, T_hist, S, D = x.shape
+        T_pred = self.pred_frames
+        T_total = self.total_frames
+        
+        # 1. Anchor Query (t=0)
+        anchors = x[:, 0, :, :]
+        anchor_queries = self.id_projector(anchors) # (B, S, D)
+        
+        # 2. History Part  (NO MASK)
+        input_history = x + self.time_pos_embed[:, :T_hist, :, :]
+        
+        tokens_grid = self.mask_token.expand(B, T_pred, S, D)
+        pos_grid = self.time_pos_embed[:, T_hist:, :, :].expand(B, T_pred, S, D)
+        anchor_grid = anchor_queries.unsqueeze(1).expand(B, T_pred, S, D)
+        input_future = tokens_grid + pos_grid + anchor_grid
+        full_input = torch.cat([input_history, input_future], dim=1)
+        
+        # Flatten
+        x_flat = rearrange(full_input, 'b t s d -> b (t s) d')
+        out_flat = self.transformer(x_flat)
+        
+        # Unflatten
+        out = rearrange(out_flat, 'b (t s) d -> b t s d', t=T_total, s=S)
+        out = self.to_out(out)
+        return out[:, T_hist:, :, :]
 
     def forward(self, x):
         """

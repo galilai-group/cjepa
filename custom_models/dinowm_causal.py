@@ -97,7 +97,7 @@ class CausalWM(torch.nn.Module):
 
         return info
 
-    def predict(self, embedding):
+    def predict(self, embedding, use_inference_function: bool=False):
         """predict next latent state
         Args:
             embedding: (B, T, P, d) - P can be num_patches or num_slots
@@ -105,9 +105,12 @@ class CausalWM(torch.nn.Module):
             preds: (B, T, P, d) for old-style or (B, num_pred, P, d) for MaskedSlotPredictor
             mask_info: (mask_indices, T) for selective loss computation
         """
-
-        preds, mask_indices = self.predictor(embedding)
-        return preds, mask_indices
+        if use_inference_function:
+            preds = self.predictor.inference(embedding)
+            return preds
+        else:
+            preds, mask_indices = self.predictor(embedding)
+            return preds, mask_indices
 
         # Output: (B, num_pred, S, 64) or (B, T+num_pred, S, 64)
 

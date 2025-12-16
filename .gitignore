@@ -11,6 +11,8 @@ temp/*
 output*.txt
 **/*.ckpt
 **/*.mp4
+**vjepa**
+*.sh
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

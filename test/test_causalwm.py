@@ -2,7 +2,6 @@
 from pathlib import Path
 import hydra
 import torch
-import torchvision
 from loguru import logger as logging
 from omegaconf import OmegaConf
 from torch.utils.data import DataLoader
@@ -10,66 +9,71 @@ import numpy as np
 
 import stable_pretraining as spt
 import stable_worldmodel as swm
-from custom_models.dinowm_reg import DINOWM_REG
-from transformers import AutoModel
-
-
-
-from utils.eval_metrics import rankme, frechet_joint_distance, feature_rollout_degradation
-
+from custom_models.dinowm_causal import CausalWM
+from custom_models.cjepa_predictor import MaskedSlotPredictor
+from videosaur.videosaur import  models
 
 from utils.eval import EvalFramework
 from utils.visualization import visualize
 
 DINO_PATCH_SIZE = 14
 
-
 def load_model_from_checkpoint(cfg):
 
     if cfg.checkpoint_path is None:
         raise ValueError("checkpoint_path must be specified in config!")
-    
     ckpt_path = Path(cfg.checkpoint_path)
     if not ckpt_path.exists():
         raise FileNotFoundError(f"Checkpoint not found: {ckpt_path}")
-    
     logging.info(f"Loading checkpoint from: {ckpt_path}")
+
+    model = models.build(cfg.model, cfg.dummy_optimizer, None, None)
+    encoder = model.encoder 
+    slot_attention = model.processor 
+    initializer = model.initializer
+    embedding_dim = cfg.videosaur.SLOT_DIM 
+    num_patches = cfg.videosaur.NUM_SLOTS
+
+    if cfg.training_type == "wm":
+        embedding_dim += cfg.dinowm.proprio_embed_dim + cfg.dinowm.action_embed_dim  # Total embedding size
+    logging.info(f"Patches: {num_patches}, Embedding dim: {embedding_dim}")
     
-    # Load DINO encoder using videosaur's model builder
-    encoder = AutoModel.from_pretrained("facebook/dinov2-with-registers-small") # yes cls, .last
-    embedding_dim = encoder.config.hidden_size
-    num_patches = (cfg.image_size // cfg.patch_size) ** 2
-    
-    # For VideoWM, no action/proprio encoders
-    predictor = swm.wm.dinowm.CausalPredictor(
-        num_patches=num_patches,
-        num_frames=cfg.dinowm.history_size,
-        dim=embedding_dim,
-        **cfg.predictor,
+    predictor = MaskedSlotPredictor(
+        num_slots=num_patches,  # S: number of slots
+        slot_dim=embedding_dim,  # 64 or higher if action/proprio included
+        history_frames=cfg.dinowm.history_size,  # T: history length
+        pred_frames=cfg.dinowm.num_preds,  # number of future frames to predict
+        num_masked_slots=cfg.get("num_masked_slots", 2),  # M: number of slots to mask
+        seed=cfg.seed,  # for reproducible masking
+        depth=cfg.predictor.get("depth", 6),
+        heads=cfg.predictor.get("heads", 16),
+        dim_head=cfg.predictor.get("dim_head", 64),
+        mlp_dim=cfg.predictor.get("mlp_dim", 2048),
+        dropout=cfg.predictor.get("dropout", 0.1),
     )
 
     # Build action and proprioception encoders
     if cfg.training_type == "video":    
         action_encoder = None
         proprio_encoder = None
-
         logging.info(f"[Video Only] Action encoder: None, Proprio encoder: None")
     else :
         effective_act_dim = cfg.frameskip * cfg.dinowm.action_dim
         action_encoder = swm.wm.dinowm.Embedder(in_chans=effective_act_dim, emb_dim=cfg.dinowm.action_embed_dim)
         proprio_encoder = swm.wm.dinowm.Embedder(in_chans=cfg.dinowm.proprio_dim, emb_dim=cfg.dinowm.proprio_embed_dim)
-
         logging.info(f"Action dim: {effective_act_dim}, Proprio dim: {cfg.dinowm.proprio_dim}")
-
     
-    world_model = DINOWM_REG(
+    world_model = CausalWM(
         encoder=spt.backbone.EvalOnly(encoder),
+        slot_attention=spt.backbone.EvalOnly(slot_attention),
+        initializer = spt.backbone.EvalOnly(initializer),
         predictor=predictor,
-        action_encoder=None,
-        proprio_encoder=None,
+        action_encoder=action_encoder,
+        proprio_encoder=proprio_encoder,
         history_size=cfg.dinowm.history_size,
         num_pred=cfg.dinowm.num_preds,
     )
+
     
     # Load checkpoint
     checkpoint = torch.load(ckpt_path, weights_only=False, map_location='cpu')
@@ -86,18 +90,18 @@ def load_model_from_checkpoint(cfg):
     return world_model
 
 
-
 def evaluate_videowm(cfg):
+    # Set seed
     torch.manual_seed(cfg.seed)
     np.random.seed(cfg.seed)
-    
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     world_model = load_model_from_checkpoint(cfg)
     world_model = world_model.to(device)
-    
+
     cache_dir = cfg.get("cache_dir", None)
     img_size = (cfg.image_size // cfg.patch_size) * DINO_PATCH_SIZE
+
     evaluation = EvalFramework(
         world_model, 
         cfg.dataset_name, 
@@ -128,7 +132,6 @@ def evaluate_videowm(cfg):
         num_preds=cfg.dinowm.num_preds,
         num_batches=num_batches
     )
-
     
     logging.info(f"Total accumulated embeddings: {pred_embeddings_all.shape}")
 
@@ -181,7 +184,7 @@ def evaluate_videowm(cfg):
     return results
 
 
-@hydra.main(version_base=None, config_path="../configs", config_name="config_test")
+@hydra.main(version_base=None, config_path="../configs", config_name="config_test_oc")
 def run(cfg):
     """Entry point for evaluation."""
     logging.info("VideoWM Evaluation")

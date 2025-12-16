@@ -181,7 +181,7 @@ def evaluate_videowm(cfg):
     return results
 
 
-@hydra.main(version_base=None, config_path="./configs", config_name="config_test")
+@hydra.main(version_base=None, config_path="../configs", config_name="config_test")
 def run(cfg):
     """Entry point for evaluation."""
     logging.info("VideoWM Evaluation")

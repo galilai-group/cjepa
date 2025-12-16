@@ -70,6 +70,7 @@ class EvalFramework():
         batch: Dict[str, torch.Tensor],
         history_size: int,
         num_preds: int,
+        use_inference_function: bool=False
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Forward pass through the world model.
         
@@ -93,7 +94,7 @@ class EvalFramework():
             # Extract history and future embeddings
             full_embedding = batch["embed"]  # (B, T, patches, D)
             embedding = full_embedding[:, :history_size, :, :]  # (B, history_size, patches, D)
-            pred_embedding = self.model.predict(embedding)[:, -1, :, :].unsqueeze(1)  # (B, num_preds, patches, D)
+            pred_embedding = self.model.predict(embedding, use_inference_function)[:, -1, :, :].unsqueeze(1)  # (B, num_preds, patches, D)
             target_embedding = full_embedding[:, history_size:history_size + num_preds, :, :]  # (B, num_preds, patches, D)
         
         return pred_embedding, target_embedding, full_embedding
@@ -159,6 +160,7 @@ class EvalFramework():
         history_size: int,
         num_preds: int,
         num_batches: Optional[int] = None,
+        use_inference_function: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Extract embeddings from validation set.
         
@@ -186,8 +188,7 @@ class EvalFramework():
             # Move batch to device
             batch['pixels'] = batch['pixels'].to(self.device)
             
-            # Extract embeddings from predictor, take LAST prediction (inference-style)
-            pred_emb, target_emb, _ = self.forward(batch, history_size, num_preds)
+            pred_emb, target_emb, _ = self.forward(batch, history_size, num_preds, use_inference_function)
             pred_step = pred_emb[:, 0, :, :]  # (B, num_patches, D)
             target_step = target_emb[:, 0, :, :]  # (B, num_patches, D) 
             
