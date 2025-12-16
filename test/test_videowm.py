@@ -9,8 +9,8 @@ import numpy as np
 
 import stable_pretraining as spt
 import stable_worldmodel as swm
-from custom_models.dinowm_oc import OCWM
-from videosaur.videosaur import  models
+from custom_models.dinowm import DINOWM
+from transformers import AutoModel
 
 from utils.eval import EvalFramework
 from utils.visualization import visualize
@@ -21,21 +21,17 @@ def load_model_from_checkpoint(cfg):
 
     if cfg.checkpoint_path is None:
         raise ValueError("checkpoint_path must be specified in config!")
+    
     ckpt_path = Path(cfg.checkpoint_path)
     if not ckpt_path.exists():
         raise FileNotFoundError(f"Checkpoint not found: {ckpt_path}")
+    
     logging.info(f"Loading checkpoint from: {ckpt_path}")
-
-    model = models.build(cfg.model, cfg.dummy_optimizer, None, None)
-    encoder = model.encoder 
-    slot_attention = model.processor 
-    initializer = model.initializer
-    embedding_dim = cfg.videosaur.SLOT_DIM 
-    num_patches = cfg.videosaur.NUM_SLOTS
-
-    if cfg.training_type == "wm":
-        embedding_dim += cfg.dinowm.proprio_embed_dim + cfg.dinowm.action_embed_dim  # Total embedding size
-    logging.info(f"Patches: {num_patches}, Embedding dim: {embedding_dim}")
+    
+    # Load DINO encoder using videosaur's model builder
+    encoder = AutoModel.from_pretrained("facebook/dinov2-small") # yes cls, .last
+    embedding_dim = encoder.config.hidden_size
+    num_patches = (cfg.image_size // cfg.patch_size) ** 2
     
     # For VideoWM, no action/proprio encoders
     predictor = swm.wm.dinowm.CausalPredictor(
@@ -49,20 +45,21 @@ def load_model_from_checkpoint(cfg):
     if cfg.training_type == "video":    
         action_encoder = None
         proprio_encoder = None
+
         logging.info(f"[Video Only] Action encoder: None, Proprio encoder: None")
     else :
         effective_act_dim = cfg.frameskip * cfg.dinowm.action_dim
         action_encoder = swm.wm.dinowm.Embedder(in_chans=effective_act_dim, emb_dim=cfg.dinowm.action_embed_dim)
         proprio_encoder = swm.wm.dinowm.Embedder(in_chans=cfg.dinowm.proprio_dim, emb_dim=cfg.dinowm.proprio_embed_dim)
+
         logging.info(f"Action dim: {effective_act_dim}, Proprio dim: {cfg.dinowm.proprio_dim}")
+
     
-    world_model = OCWM(
+    world_model = DINOWM(
         encoder=spt.backbone.EvalOnly(encoder),
-        slot_attention=spt.backbone.EvalOnly(slot_attention),
-        initializer = spt.backbone.EvalOnly(initializer),
         predictor=predictor,
-        action_encoder=action_encoder,
-        proprio_encoder=proprio_encoder,
+        action_encoder=None,
+        proprio_encoder=None,
         history_size=cfg.dinowm.history_size,
         num_pred=cfg.dinowm.num_preds,
     )
@@ -86,14 +83,15 @@ def evaluate_videowm(cfg):
     # Set seed
     torch.manual_seed(cfg.seed)
     np.random.seed(cfg.seed)
+    
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     world_model = load_model_from_checkpoint(cfg)
     world_model = world_model.to(device)
-
+    
     cache_dir = cfg.get("cache_dir", None)
     img_size = (cfg.image_size // cfg.patch_size) * DINO_PATCH_SIZE
-
+    
     evaluation = EvalFramework(
         world_model, 
         cfg.dataset_name, 
@@ -102,7 +100,7 @@ def evaluate_videowm(cfg):
         metrics=cfg.metrics,
         device=device
     )
-
+    
     eval_dataset = evaluation.pull_eval_data(
         cfg.n_steps,
         cfg.frameskip,
@@ -127,15 +125,22 @@ def evaluate_videowm(cfg):
     
     logging.info(f"Total accumulated embeddings: {pred_embeddings_all.shape}")
 
-    results = evaluation.calculate_metrics( 
-        pred_embeddings_all, 
-        target_embeddings_all,
-        rollout_loader=eval_loader if cfg.metrics.feature_rollout_degradation.enabled else None,
-        rollout_batches=cfg.get('rollout_batches', None),
-        history_size=cfg.dinowm.history_size,
-        num_preds=cfg.dinowm.num_preds
+    rollout_dataset = evaluation.pull_eval_data(
+        cfg.dinowm.history_size+cfg.metrics.feature_rollout_degradation.num_steps,
+        cfg.frameskip,
+        seed=cfg.seed,
+        train_split=cfg.get('train_split', 0.8)
     )
-    
+    rollout_loader = DataLoader(rollout_dataset, batch_size=cfg.batch_size, num_workers=cfg.num_workers, pin_memory=True)
+
+    results = evaluation.calculate_metrics( 
+            pred_embeddings_all, 
+            target_embeddings_all,
+            rollout_loader=rollout_loader if cfg.metrics.feature_rollout_degradation.enabled else None,
+            rollout_batches=cfg.get('rollout_batches', None),
+            history_size=cfg.dinowm.history_size,
+            num_preds=cfg.dinowm.num_preds
+            )
     # Save results
     output_dir = Path(cfg.get('output_dir', './eval_results'))
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -176,7 +181,7 @@ def evaluate_videowm(cfg):
     return results
 
 
-@hydra.main(version_base=None, config_path="./", config_name="config_test_oc")
+@hydra.main(version_base=None, config_path="./configs", config_name="config_test")
 def run(cfg):
     """Entry point for evaluation."""
     logging.info("VideoWM Evaluation")

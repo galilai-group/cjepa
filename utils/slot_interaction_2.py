@@ -383,7 +383,7 @@ def slot_interaction(cfg):
     
     save_video(pred_pca, gt_pca, video_frames_plot, output_path=str(output_path))
 
-@hydra.main(version_base=None, config_path="./", config_name="config_test_oc")
+@hydra.main(version_base=None, config_path="../configs", config_name="config_test_oc")
 def run(cfg):
     """Entry point for evaluation."""
     logging.info(f"Slot interaction for {VIDEO_PATH}")

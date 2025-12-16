@@ -14,7 +14,7 @@ from custom_models.dinowm_reg import DINOWM_REG
 from transformers import AutoModel
 
 
-from data import VideoStepsDataset
+
 from utils.eval_metrics import rankme, frechet_joint_distance, feature_rollout_degradation
 
 
@@ -181,7 +181,7 @@ def evaluate_videowm(cfg):
     return results
 
 
-@hydra.main(version_base=None, config_path="./", config_name="config_test")
+@hydra.main(version_base=None, config_path="./configs", config_name="config_test")
 def run(cfg):
     """Entry point for evaluation."""
     logging.info("VideoWM Evaluation")

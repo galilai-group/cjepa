@@ -1,272 +1,207 @@
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
+from einops import rearrange
 import numpy as np
 
-# from torchvision import transforms
-import torchvision.transforms.v2 as transforms
-from einops import rearrange, repeat
-from torch import distributed as dist
-from torch import nn
-
-
-
-class Transformer(nn.Module):
-    def __init__(
-        self,
-        dim,
-        depth,
-        heads,
-        dim_head,
-        mlp_dim,
-        dropout=0.0,
-        num_patches=1,
-        num_frames=1,
-    ):
+class NonCausalTransformer(nn.Module):
+    """
+    Standard Transformer Encoder with Non-Causal (Full) Attention.
+    """
+    def __init__(self, dim, depth, heads, dim_head, mlp_dim, dropout=0.0):
         super().__init__()
         self.norm = nn.LayerNorm(dim)
         self.layers = nn.ModuleList([])
         for _ in range(depth):
-            self.layers.append(
-                nn.ModuleList(
-                    [
-                        Attention(
-                            dim,
-                            heads=heads,
-                            dim_head=dim_head,
-                            dropout=dropout,
-                            num_patches=num_patches,
-                            num_frames=num_frames,
-                        ),
-                        FeedForward(dim, mlp_dim, dropout=dropout),
-                    ]
+            self.layers.append(nn.ModuleList([
+                # Batch_first=True for (B, Seq, D)
+                nn.MultiheadAttention(dim, heads, dropout=dropout, batch_first=True),
+                # FeedForward Network
+                nn.Sequential(
+                    nn.LayerNorm(dim),
+                    nn.Linear(dim, mlp_dim),
+                    nn.GELU(),
+                    nn.Dropout(dropout),
+                    nn.Linear(mlp_dim, dim),
+                    nn.Dropout(dropout)
                 )
-            )
+            ]))
 
     def forward(self, x):
+        # x: (B, SeqLen, D)
         for attn, ff in self.layers:
-            x = attn(x) + x
-            x = ff(x) + x
-
+            # Self-attention with no mask (Full Attention)
+            attn_out, _ = attn(x, x, x) 
+            x = x + attn_out
+            x = x + ff(x)
         return self.norm(x)
 
-class Attention(nn.Module):
-    def __init__(self, dim, heads=8, dim_head=64, dropout=0.0, num_patches=1, num_frames=1):
-        super().__init__()
-        inner_dim = dim_head * heads
-        project_out = not (heads == 1 and dim_head == dim)
-        self.heads = heads
-        self.scale = dim_head**-0.5
-        self.norm = nn.LayerNorm(dim)
-        self.attend = nn.Softmax(dim=-1)
-        self.dropout = nn.Dropout(dropout)
-        self.to_qkv = nn.Linear(dim, inner_dim * 3, bias=False)
-        self.to_out = nn.Sequential(nn.Linear(inner_dim, dim), nn.Dropout(dropout)) if project_out else nn.Identity()
-
-        self.register_buffer("bias", self.generate_mask_matrix(num_patches, num_frames))
-
-    def forward(self, x):
-        B, T, C = x.size()
-        x = self.norm(x)
-
-        # q, k, v: (B, heads, T, dim_head)
-        qkv = self.to_qkv(x).chunk(3, dim=-1)
-        q, k, v = (rearrange(t, "b n (h d) -> b h n d", h=self.heads) for t in qkv)
-
-        attn_mask = self.bias[:, :, :T, :T] == 1  # bool mask
-
-        out = F.scaled_dot_product_attention(
-            q, k, v, attn_mask=attn_mask, dropout_p=self.dropout.p if self.training else 0.0, is_causal=False
-        )
-
-        out = rearrange(out, "b h n d -> b n (h d)")
-
-        return self.to_out(out)
-
-    def generate_mask_matrix(self, npatch, nwindow):
-        zeros = torch.zeros(npatch, npatch)
-        ones = torch.ones(npatch, npatch)
-        rows = []
-        for i in range(nwindow):
-            row = torch.cat([ones] * (i + 1) + [zeros] * (nwindow - i - 1), dim=1)
-            rows.append(row)
-        mask = torch.cat(rows, dim=0).unsqueeze(0).unsqueeze(0)
-        return mask
-    
-
-
-class FeedForward(nn.Module):
-    def __init__(self, dim, hidden_dim, dropout=0.0):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.LayerNorm(dim),
-            nn.Linear(dim, hidden_dim),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, dim),
-            nn.Dropout(dropout),
-        )
-
-    def forward(self, x):
-        return self.net(x)
-
-
 class MaskedSlotPredictor(nn.Module):
-    """
-    V-JEPA style predictor for masked slot prediction.
-    
-    Input: (B, T, S, 64) - B: batch, T: history_length, S: num_slots, 64: slot_dim
-    Output: (B, T + num_pred, S, 64) - predicts future slots
-    
-    Masking: M random slots are masked across all timesteps
-    cfg.causal_mask_predict: if True, predict masked slots; if False, only predict future
-    """
-    
     def __init__(
         self,
-        num_slots: int,
+        num_slots: int,             # Total number of slots per frame
         slot_dim: int = 64,
-        num_frames: int = 3,
-        num_pred: int = 1,
-        num_masked_slots: int = 2,
+        history_frames: int = 3,    # Number of input frames
+        pred_frames: int = 1,       # Number of future frames to predict
+        num_masked_slots: int = 2,  # N slots to mask (context masking)
+        seed: int = 42,             # Random seed for masking
         depth: int = 6,
         heads: int = 8,
         dim_head: int = 64,
         mlp_dim: int = 2048,
         dropout: float = 0.1,
-        emb_dropout: float = 0.0,
-        causal_mask_predict: bool = False,
-        seed: int = 42,
     ):
         super().__init__()
         self.num_slots = num_slots
         self.slot_dim = slot_dim
-        self.num_frames = num_frames
-        self.num_pred = num_pred
+        self.history_frames = history_frames
+        self.pred_frames = pred_frames
+        self.total_frames = history_frames + pred_frames
         self.num_masked_slots = num_masked_slots
-        self.causal_mask_predict = causal_mask_predict
         self.seed = seed
         
-        # Positional embedding for time axis only (slots are permutable)
-        # Shape: (1, T + num_pred, slot_dim)
-        self.time_pos_embedding = nn.Parameter(
-            torch.randn(1, num_frames + num_pred, slot_dim)
-        )
-        self.dropout = nn.Dropout(emb_dropout)
+        # 1. Learnable Mask Token (Query Base)
+        # Represents the center of the manifold for any missing data
+        self.mask_token = nn.Parameter(torch.zeros(1, 1, slot_dim))
+        nn.init.trunc_normal_(self.mask_token, std=0.02)
         
-        # Transformer backbone
-        self.transformer = Transformer(
-            dim=slot_dim,
-            depth=depth,
-            heads=heads,
-            dim_head=dim_head,
-            mlp_dim=mlp_dim,
-            dropout=dropout,
-            num_patches=num_slots,
-            num_frames=num_frames + num_pred,
+        # 2. Time Positional Embedding
+        # Shared across all slots, distinct for each timestep (0 to T_total)
+        self.time_pos_embed = nn.Parameter(torch.randn(1, self.total_frames, 1, slot_dim))
+        
+        # 3. ID Projector (The "Anchor" mechanism)
+        # Projects the t=0 latent (feature) into a Query (instruction)
+        # "Here is what this object looked like at start, predict its future/history."
+        self.id_projector = nn.Linear(slot_dim, slot_dim)
+
+        # 4. Backbone (Non-Causal Transformer)
+        self.transformer = NonCausalTransformer(
+            dim=slot_dim, depth=depth, heads=heads, 
+            dim_head=dim_head, mlp_dim=mlp_dim, dropout=dropout
         )
         
-        # Output projection
+        # 5. Output Head
         self.to_out = nn.Linear(slot_dim, slot_dim)
-        
-        # Mask token (learnable)
-        self.mask_token = nn.Parameter(torch.randn(1, 1, slot_dim))
-        
-    def get_masked_slots(self, x):
+
+    def get_mask_indices(self, batch_size, device):
         """
-        Randomly select M slots to mask across all timesteps.
-        
-        Args:
-            x: (B, T, S, 64)
-        
-        Returns:
-            x_masked: (B, T, S, 64) with masked slots replaced by mask_token
-            mask_indices: (S,) bool array indicating which slots are masked
-            masked_slot_ids: (M,) array of masked slot indices
+        Selects N slots to be masked per sample (or shared across batch).
+        Here, we implement shared masking across the batch for simplicity, 
+        but it can be easily made per-sample.
         """
-        B, T, S, D = x.shape
-        
-        # Use seed for reproducibility
         rng = np.random.RandomState(self.seed)
         
-        # Randomly select M slots to mask
-        mask_indices = np.zeros(S, dtype=bool)
-        masked_slot_ids = rng.choice(S, self.num_masked_slots, replace=False)
-        mask_indices[masked_slot_ids] = True
+        # Select N indices out of num_slots
+        masked_indices = rng.choice(self.num_slots, self.num_masked_slots, replace=False)
         
-        # Create masked version: replace M masked slots with learnable mask token
-        x_masked = x.clone()
-        # Properly broadcast mask_token: (1, 1, 1, D) -> (B, T, M, D)
-        for i, slot_id in enumerate(masked_slot_ids):
-            x_masked[:, :, slot_id, :] = self.mask_token  # (1, 1, D) broadcasts to (B, T, D)
+        # Create boolean mask for logic (True = Masked/Target, False = Visible/Context)
+        # This is strictly about "Slot" masking. Time masking logic is handled in prepare_input.
+        is_slot_masked = torch.zeros(self.num_slots, dtype=torch.bool, device=device)
+        is_slot_masked[masked_indices] = True
         
-        return x_masked, torch.from_numpy(mask_indices).to(x.device), masked_slot_ids
-    
-    def forward(self, x, return_mask_info=False):
+        return is_slot_masked, torch.from_numpy(masked_indices).to(device)
+
+    def prepare_input(self, x):
+        """
+        Constructs the input sequence for the Transformer.
+        
+        Logic:
+        - t=0: ALWAYS Visible (Identity Anchor).
+        - Masked Slots (Target): Visible at t=0, Masked at t=1 ~ T_total.
+        - Unmasked Slots (Context): Visible at t=0 ~ T_hist, Masked at Future.
+        
+        Args:
+            x: (B, T_hist, S, D) - Ground Truth History
+        Returns:
+            full_input: (B, T_total, S, D)
+            mask_indices: indices of slots that were masked
+        """
+        B, T_hist, S, D = x.shape
+        T_total = self.total_frames
+        device = x.device
+        
+        # 1. Get Mask Indices
+        is_slot_masked, masked_indices = self.get_mask_indices(B, device)
+        
+        # 2. Prepare Base Components
+        # Anchors: First frame of all slots (B, S, D)
+        anchors = x[:, 0, :, :] 
+        
+        # Project anchors to create Identity Queries (B, S, D)
+        anchor_queries = self.id_projector(anchors)
+        
+        # 3. Construct the "Query Grid" (Default for everything)
+        # Shape: (B, T_total, S, D)
+        # Base = MaskToken + TimePE + AnchorQuery
+        # This represents "Predict the state of [Anchor] at [Time]"
+        
+        # Expand dims for broadcasting
+        # MaskToken: (1, 1, 1, D) -> (B, T, S, D)
+        tokens_grid = self.mask_token.expand(B, T_total, S, D)
+        
+        # TimePE: (1, T, 1, D) -> (B, T, S, D)
+        pos_grid = self.time_pos_embed.expand(B, T_total, S, D)
+        
+        # AnchorQueries: (B, 1, S, D) -> (B, T, S, D)
+        anchor_grid = anchor_queries.unsqueeze(1).expand(B, T_total, S, D)
+        
+        # Full Query Input
+        query_input = tokens_grid + pos_grid + anchor_grid
+
+        # 4. Construct the "Real Data Grid" (Only available for history)
+        # We start by cloning the query input, then overwrite visible parts with real data.
+        final_input = query_input.clone()
+        
+        # --- Overwrite Logic ---
+        
+        # (A) ALWAYS overwrite t=0 with Real Data + TimePE(0) for ALL slots
+        # This ensures the Anchor is physically present in the input
+        final_input[:, 0, :, :] = x[:, 0, :, :] + self.time_pos_embed[:, 0, :, :]
+        
+        # (B) For UNMASKED (Context) slots, overwrite history (t=1 to T_hist-1)
+        # Filter indices for unmasked slots
+        unmasked_indices = torch.where(~is_slot_masked)[0]
+        
+        if len(unmasked_indices) > 0 and T_hist > 1:
+            # Extract real history for unmasked slots
+            # x[:, 1:, ...] matches T_hist-1 frames
+            real_history = x[:, 1:, unmasked_indices, :]
+            
+            # Add corresponding TimePE
+            history_pos = self.time_pos_embed[:, 1:T_hist, :, :].expand(B, T_hist-1, S, D)
+            history_pos_unmasked = history_pos[:, :, unmasked_indices, :]
+            
+            # Overwrite in final_input
+            final_input[:, 1:T_hist, unmasked_indices, :] = real_history + history_pos_unmasked
+
+        # Note: 
+        # - Masked slots at t >= 1 remain as "Query Input".
+        # - Unmasked slots at t >= T_hist (Future) remain as "Query Input".
+        
+        return final_input, masked_indices
+
+    def forward(self, x):
         """
         Args:
-            x: (B, T, S, 64) - T: history_length, S: num_slots
-            return_mask_info: if True, also return (mask_indices, T) for loss computation
-        
-        Returns:
-            pred: (B, T+num_pred, S, 64) or (B, num_pred, S, 64) depending on causal_mask_predict
-            (optionally) mask_info: tuple of (mask_indices, num_history_frames) for selective loss
+            x: (B, T_hist, S, D)
+            return_indices: If True, returns the indices of masked slots.
         """
-        B, T, S, D = x.shape
+        B, T_hist, S, D = x.shape
         
-        # Get masked version and mask info
-        x_masked, mask_indices, masked_slot_ids = self.get_masked_slots(x)
+        # 1. Prepare Input (Mix of Real Data and Queries)
+        x_input, masked_indices = self.prepare_input(x) # (B, T_total, S, D)
         
-        # Add temporal positional embedding BEFORE flattening
-        # Shape of x_masked: (B, T, S, D)
-        # time_pos_embedding: (1, T, D) -> broadcast to (1, T, 1, D)
-        x_with_pos = x_masked + self.time_pos_embedding[:, :T, :].unsqueeze(2)  # (B, T, S, D)
-        x_with_pos = self.dropout(x_with_pos)
+        # 2. Flatten for Transformer: (B, T*S, D)
+        x_flat = rearrange(x_input, 'b t s d -> b (t s) d')
         
-        # Flatten: (B, T, S, D) -> (B, T*S, D)
-        x_flat = rearrange(x_with_pos, "b t s d -> b (t s) d")
+        # 3. Non-Causal Full Attention
+        # Every token (History, Future, Masked, Unmasked) attends to every other token.
+        out_flat = self.transformer(x_flat)
         
-        # Process through transformer
-        x_transformed = self.transformer(x_flat)  # (B, T*S, D)
+        # 4. Unflatten
+        out = rearrange(out_flat, 'b (t s) d -> b t s d', t=self.total_frames, s=S)
         
-        # Unflatten back: (B, T*S, D) -> (B, T, S, D)
-        x_transformed = rearrange(x_transformed, "b (t s) d -> b t s d", t=T, s=S)
-        
-        # Generate future predictions
-        future_preds = []
-        z = x_transformed  # (B, T, S, D)
-        
-        for step in range(self.num_pred):
-            # Use last history frame to predict next
-            z_hist = z[:, -self.num_frames:, :, :]  # (B, num_frames, S, D)
-            
-            # Add temporal positional embedding for prediction step
-            # Position in time axis: T + step (from 0-indexed)
-            time_idx = self.num_frames + step  # absolute position in sequence
-            z_hist_with_pos = z_hist + self.time_pos_embedding[:, -self.num_frames:, :].unsqueeze(2)  # (B, num_frames, S, D)
-            
-            # Flatten
-            z_hist_flat = rearrange(z_hist_with_pos, "b t s d -> b (t s) d")
-            
-            # Predict next frame
-            z_pred = self.transformer(z_hist_flat)  # (B, num_frames*S, D)
-            z_pred = rearrange(z_pred, "b (t s) d -> b t s d", t=self.num_frames, s=S)
-            z_pred = z_pred[:, -1:, :, :]  # Take only the predicted frame (B, 1, S, D)
-            
-            future_preds.append(z_pred)
-            z = torch.cat([z, z_pred], dim=1)  # (B, T+1, S, D)
-        
-        # Output: concatenate history and predictions
-        output = torch.cat([x_transformed] + future_preds, dim=1)  # (B, T+num_pred, S, D)
-        
-        if self.causal_mask_predict:
-            # Predict both masked slots and future: return full output
-            result = output
-        else:
-            # Only predict future (exclude history timesteps)
-            result = output[:, T:, :, :]  # (B, num_pred, S, D)
-        
-        if return_mask_info:
-            # Return (output, mask_indices, num_history_frames)
-            return result, mask_indices, T
-        else:
-            return result
+        # 5. Output Projection
+        out = self.to_out(out)
+
+        return out, masked_indices

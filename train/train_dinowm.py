@@ -3,24 +3,16 @@ from pathlib import Path
 import hydra
 import lightning as pl
 import stable_pretraining as spt
-import stable_worldmodel as swm
 import torch
-import torchvision
-from lightning.pytorch.callbacks import Callback, ModelCheckpoint
+from lightning.pytorch.callbacks import Callback
 from lightning.pytorch.loggers import WandbLogger
-from lightning.pytorch.strategies import DDPStrategy
-
 from loguru import logger as logging
 from omegaconf import OmegaConf
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from transformers import AutoModel
-import wandb
-from custom_models.dinowm import DINOWM
 
-
-from data import VideoStepsDataset
-
+import stable_worldmodel as swm
 
 
 DINO_PATCH_SIZE = 14  # DINO encoder uses 14x14 patches
@@ -50,7 +42,7 @@ def get_data(cfg):
         std = data.std(0).unsqueeze(0)
         return lambda x: (x - mean) / std
 
-    dataset = swm.data.VideoDataset(
+    dataset = swm.data.FrameDataset(
         cfg.dataset_name,
         num_steps=cfg.n_steps,
         frameskip=cfg.frameskip,
@@ -61,22 +53,22 @@ def get_data(cfg):
     # Image size must be multiple of DINO patch size (14)
     img_size = (cfg.image_size // cfg.patch_size) * DINO_PATCH_SIZE
 
-    # norm_action_transform = norm_col_transform(dataset.dataset, "action")
-    # norm_proprio_transform = norm_col_transform(dataset.dataset, "proprio")
+    norm_action_transform = norm_col_transform(dataset.dataset, "action")
+    norm_proprio_transform = norm_col_transform(dataset.dataset, "proprio")
 
     # Apply transforms to all steps
     transform = spt.data.transforms.Compose(
         *[get_img_pipeline(f"{col}.{i}", f"{col}.{i}", img_size) for col in ["pixels"] for i in range(cfg.n_steps)],
-        # spt.data.transforms.WrapTorchTransform(
-        #     norm_action_transform,
-        #     source="action",
-        #     target="action",
-        # ),
-        # spt.data.transforms.WrapTorchTransform(
-        #     norm_proprio_transform,
-        #     source="proprio",
-        #     target="proprio",
-        # ),
+        spt.data.transforms.WrapTorchTransform(
+            norm_action_transform,
+            source="action",
+            target="action",
+        ),
+        spt.data.transforms.WrapTorchTransform(
+            norm_proprio_transform,
+            source="proprio",
+            target="proprio",
+        ),
     )
 
     dataset.transform = transform
@@ -111,11 +103,21 @@ def get_world_model(cfg):
     def forward(self, batch, stage):
         """Forward: encode observations, predict next states, compute losses."""
 
+        proprio_key = "proprio" if "proprio" in batch else None
+
+        # Replace NaN values with 0 (occurs at sequence boundaries)
+        if proprio_key is not None:
+            batch[proprio_key] = torch.nan_to_num(batch[proprio_key], 0.0)
+        if "action" in batch:
+            batch["action"] = torch.nan_to_num(batch["action"], 0.0)
+
         # Encode all timesteps into latent embeddings
         batch = self.model.encode(
             batch,
             target="embed",
-            pixels_key="pixels"
+            pixels_key="pixels",
+            proprio_key=proprio_key,
+            action_key="action",
         )
 
         # Use history to predict next states
@@ -123,27 +125,38 @@ def get_world_model(cfg):
         pred_embedding = self.model.predict(embedding)
         target_embedding = batch["embed"][:, cfg.dinowm.num_preds :, :, :]  # (B, T-1, patches, dim)
 
-        # Compute pixel latent prediction loss
+        # Compute pixel reconstruction loss
         pixels_dim = batch["pixels_embed"].shape[-1]
-        batch["loss"] = F.mse_loss(pred_embedding, target_embedding.detach())
-        B, num_pred, S, D = pred_embedding.shape
-        pred_flat = pred_embedding.reshape(B*num_pred, S*D)
-        batch["predictor_embed"] = pred_flat
+        pixels_loss = F.mse_loss(pred_embedding[..., :pixels_dim], target_embedding[..., :pixels_dim].detach())
+        batch["pixels_loss"] = pixels_loss
+
+        # Add proprioception loss if available
+        if proprio_key is not None:
+            proprio_dim = batch["proprio_embed"].shape[-1]
+            proprio_loss = F.mse_loss(
+                pred_embedding[..., pixels_dim : pixels_dim + proprio_dim],
+                target_embedding[..., pixels_dim : pixels_dim + proprio_dim].detach(),
+            )
+            batch["proprio_loss"] = proprio_loss
+
+        batch["loss"] = F.mse_loss(
+            pred_embedding[..., : pixels_dim + proprio_dim],
+            target_embedding[..., : pixels_dim + proprio_dim].detach(),
+        )
+
         # Log all losses
         prefix = "train/" if self.training else "val/"
-        losses_dict = {f"{prefix}{k}": v.detach() for k, v in batch.items() if "loss" in k}
+        losses_dict = {f"{prefix}{k}": v.detach() for k, v in batch.items() if "_loss" in k}
         self.log_dict(losses_dict, on_step=True, sync_dist=True)  # , on_epoch=True, sync_dist=True)
 
         return batch
 
     # Load frozen DINO encoder
-    encoder = AutoModel.from_pretrained("facebook/dinov2-small") # yes cls, .last
+    encoder = AutoModel.from_pretrained("facebook/dinov2-small")
     embedding_dim = encoder.config.hidden_size
 
     num_patches = (cfg.image_size // cfg.patch_size) ** 2
-
-    if cfg.training_type == "wm":
-        embedding_dim += cfg.dinowm.proprio_embed_dim + cfg.dinowm.action_embed_dim  # Total embedding size
+    embedding_dim += cfg.dinowm.proprio_embed_dim + cfg.dinowm.action_embed_dim  # Total embedding size
 
     logging.info(f"Patches: {num_patches}, Embedding dim: {embedding_dim}")
 
@@ -156,20 +169,14 @@ def get_world_model(cfg):
     )
 
     # Build action and proprioception encoders
-    if cfg.training_type == "video":    
-        action_encoder = None
-        proprio_encoder = None
+    effective_act_dim = cfg.frameskip * cfg.dinowm.action_dim
+    action_encoder = swm.wm.dinowm.Embedder(in_chans=effective_act_dim, emb_dim=cfg.dinowm.action_embed_dim)
+    proprio_encoder = swm.wm.dinowm.Embedder(in_chans=cfg.dinowm.proprio_dim, emb_dim=cfg.dinowm.proprio_embed_dim)
 
-        logging.info(f"[Video Only] Action encoder: None, Proprio encoder: None")
-    else :
-        effective_act_dim = cfg.frameskip * cfg.dinowm.action_dim
-        action_encoder = swm.wm.dinowm.Embedder(in_chans=effective_act_dim, emb_dim=cfg.dinowm.action_embed_dim)
-        proprio_encoder = swm.wm.dinowm.Embedder(in_chans=cfg.dinowm.proprio_dim, emb_dim=cfg.dinowm.proprio_embed_dim)
-
-        logging.info(f"Action dim: {effective_act_dim}, Proprio dim: {cfg.dinowm.proprio_dim}")
+    logging.info(f"Action dim: {effective_act_dim}, Proprio dim: {cfg.dinowm.proprio_dim}")
 
     # Assemble world model
-    world_model = DINOWM(
+    world_model = swm.wm.DINOWM(
         encoder=spt.backbone.EvalOnly(encoder),
         predictor=predictor,
         action_encoder=action_encoder,
@@ -200,7 +207,7 @@ def get_world_model(cfg):
 def setup_pl_logger(cfg):
     if not cfg.wandb.enable:
         return None
-    # try:
+
     wandb_run_id = cfg.wandb.get("run_id", None)
     wandb_logger = WandbLogger(
         name="dino_wm",
@@ -245,7 +252,7 @@ class ModelObjectCallBack(Callback):
 # ============================================================================
 # Main Entry Point
 # ============================================================================
-@hydra.main(version_base=None, config_path="./", config_name="config")
+@hydra.main(version_base=None, config_path="../configs", config_name="config_train")
 def run(cfg):
     """Run training of predictor"""
 
@@ -253,37 +260,20 @@ def run(cfg):
     data = get_data(cfg)
     world_model = get_world_model(cfg)
 
-    cache_dir = swm.data.utils.get_cache_dir() if cfg.cache_dir is None else cfg.cache_dir
+    cache_dir = swm.data.utils.get_cache_dir()
     dump_object_callback = ModelObjectCallBack(
         dirpath=cache_dir,
         filename=cfg.output_model_name,
-        epoch_interval=1,
+        epoch_interval=10,
     )
-    
-    # Setup RankMe callback for monitoring predictor embedding quality
-    num_patches = (cfg.image_size // cfg.patch_size) ** 2
-    callbacks = [dump_object_callback]
-    if cfg.get("monitor_rankme", False):
-        # RankMe uses a queue to track embeddings and compute effective rank
-        rankme_callback = spt.callbacks.RankMe(
-            name="rankme/predictor",
-            target="predictor_embed",
-            queue_length=cfg.get("rankme_queue_length", 2048),
-            target_shape=num_patches * 64,  # S * D flattened
-        )
-        callbacks.append(rankme_callback)
-        logging.info(
-            f"RankMe monitoring enabled (queue_length={cfg.get('rankme_queue_length', 2048)}, "
-            f"target_shape={num_patches * 64})" # numpatches 
-        )
-    strategy=DDPStrategy(find_unused_parameters=True)
+    # checkpoint_callback = ModelCheckpoint(dirpath=cache_dir, filename=f"{cfg.output_model_name}_weights")
+
     trainer = pl.Trainer(
         **cfg.trainer,
-        callbacks=callbacks,
+        callbacks=[dump_object_callback],
         num_sanity_val_steps=1,
         logger=wandb_logger,
         enable_checkpointing=True,
-        strategy=strategy,
     )
 
     manager = spt.Manager(
@@ -291,7 +281,6 @@ def run(cfg):
         module=world_model,
         data=data,
         ckpt_path=f"{cache_dir}/{cfg.output_model_name}_weights.ckpt",
-        seed=cfg.seed
     )
     manager()
 

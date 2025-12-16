@@ -97,37 +97,19 @@ class CausalWM(torch.nn.Module):
 
         return info
 
-    def predict(self, embedding, return_mask_info=False):
+    def predict(self, embedding):
         """predict next latent state
         Args:
             embedding: (B, T, P, d) - P can be num_patches or num_slots
-            return_mask_info: if True, return (preds, mask_indices, T) for MaskedSlotPredictor
         Returns:
             preds: (B, T, P, d) for old-style or (B, num_pred, P, d) for MaskedSlotPredictor
-            (optionally) mask_info: (mask_indices, T) for selective loss computation
+            mask_info: (mask_indices, T) for selective loss computation
         """
-        
-        # Check if using MaskedSlotPredictor (slots format) or old predictor (patches format)
-        if hasattr(self.predictor, 'num_slots'):
-            # MaskedSlotPredictor: input is already (B, T, S, D)
-            # embedding shape: (B, T, S, 64)
-            if return_mask_info:
-                preds, mask_indices, T = self.predictor(embedding, return_mask_info=True)
-                return preds, mask_indices, T
-            else:
-                preds = self.predictor(embedding, return_mask_info=False)
-                return preds
-            # Output: (B, num_pred, S, 64) or (B, T+num_pred, S, 64)
-        else:
-            # Old-style predictor: flatten and unflatten
-            T = embedding.shape[1]
-            embedding = rearrange(embedding, "b t p d -> b (t p) d")
-            preds = self.predictor(embedding)
-            preds = rearrange(preds, "b (t p) d -> b t p d", t=T)
-            if return_mask_info:
-                return preds, None, T
-            else:
-                return preds
+
+        preds, mask_indices = self.predictor(embedding)
+        return preds, mask_indices
+
+        # Output: (B, num_pred, S, 64) or (B, T+num_pred, S, 64)
 
     def decode(self, info):
         assert "pixels_embed" in info, "pixels_embed not in info_dict"

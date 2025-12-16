@@ -445,7 +445,7 @@ def visualize_slot_attention(cfg):
     logging.info("✓ Slot attention visualization complete!")
 
 
-@hydra.main(version_base=None, config_path="./", config_name="config_test_oc")
+@hydra.main(version_base=None, config_path="../configs", config_name="config_test_oc")
 def run(cfg):
     """Entry point for slot attention visualization."""
     logging.info(f"Visualizing slot attention for {VIDEO_PATH}")

@@ -4,60 +4,42 @@ defaults:
   - _self_
   - override hydra/hydra_logging: disabled
   - override hydra/job_logging: disabled
-  # - override hydra/launcher: submitit_slurm
 
 hydra:
   output_subdir: null
-  # mode: MULTIRUN
-  # launcher:
-  #   max_num_timeout: 999
-  #   gpus_per_node: 2
-  #   tasks_per_node: ${hydra.launcher.gpus_per_node}
-  #   cpus_per_task: 4
-  #   mem_gb: 48
-  #   timeout_min: 4600
-  #   partition: main
-  #   signal_delay_s: 120
-  #   constraint: lovelace
-  #   # setup:
-  #   # [
-  #   #   "tar -czf \"$SLURM_TMPDIR/stablewm.tgz\" -C \"$STABLEWM_HOME\" .",
-  #   #   "tar -xzf \"$SLURM_TMPDIR/stablewm.tgz\" -C \"$SLURM_TMPDIR\"",
-  #   #   "rm -f \"$SLURM_TMPDIR/stablewm.tgz\""
-  #   # ]
-  # run:
-  #   dir: .
 
 wandb:
   enable: true
   project: cjepa
   entity: heejeong_nam-brown-university
 
-dataset_name: clevrer_train # pusht_expert
-cache_dir: "/cs/data/people/hnam16/.stable_worldmodel"
-output_model_name: world_model_oc
-training_type: video # options: video, wm
-artifact_dir: "/cs/data/people/hnam16/.stable_worldmodel/artifacts"
-ckpt_dir: "/home/hnam16/.stable_worldmodel"
 
+monitor_rankme: true                 
+rankme_queue_length: 2048 
+
+dataset_name: clevrer_train
+cache_dir: "/cs/data/people/hnam16/.stable_worldmodel"
+ckpt_dir: "/home/hnam16/.stable_worldmodel"
+output_model_name: causal_world_model_ver2
+training_type: video  # options: video, wm
 
 trainer:
   max_epochs: 100
-  strategy: ddp 
+  # strategy: ddp 
   devices: auto
   accelerator: gpu 
   precision: 16-mixed
   log_every_n_steps: 1
 
 batch_size: 64
-num_workers: 16
+num_workers: 10
 train_split: 0.8
 seed: 42
 
 image_size: 224
 patch_size: 16
 
-n_steps:  ${eval:'${dinowm.num_preds} + ${dinowm.history_size}'}
+n_steps: ${eval:'${dinowm.num_preds} + ${dinowm.history_size}'}
 frameskip: 5
 
 dinowm:
@@ -67,6 +49,9 @@ dinowm:
   proprio_embed_dim: 10
   action_dim: 2
   action_embed_dim: 10
+
+# Masked Slot Predictor Configuration
+num_masked_slots: 2  # M: number of slots to mask during training
 
 predictor:
   depth: 6
@@ -80,9 +65,9 @@ predictor_lr: 5e-4
 proprio_encoder_lr: 5e-4
 action_encoder_lr: 5e-4
 
-dump_object: True
+dump_object: true
 
-
+# Videosaur configuration (for slot-attention encoder)
 videosaur:
   NUM_SLOTS: 7
   SLOT_DIM: 64
@@ -97,7 +82,7 @@ videosaur:
   SIM_TEMP: 0.15
 
 model:
-  load_weights: None
+  load_weights: "/cs/data/people/hnam16/.stable_worldmodel/artifacts/oc-checkpoints/oc_ckpt.ckpt"
   modules_to_load: None
   input_type: video
   visualize: true
@@ -204,3 +189,4 @@ dummy_trainer:
   log_every_n_steps: 1
   val_check_interval: 1000
   gradient_clip_val: 0.05
+
