@@ -122,7 +122,7 @@ def evaluate_videowm(cfg):
         eval_loader,
         history_size=cfg.dinowm.history_size,
         num_preds=cfg.dinowm.num_preds,
-        num_batches=num_batches
+        num_batches=num_batches,
     )
     
     logging.info(f"Total accumulated embeddings: {pred_embeddings_all.shape}")

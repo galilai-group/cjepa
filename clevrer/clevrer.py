@@ -12,7 +12,7 @@ import stable_worldmodel as swm
 # you can add the metadata of clevrer as extra columns, I leave it to you ;)
 
 # expect path towards a single directory containing all .mp4 video files of clevrer
-video_dir = Path("/cs/data/people/hnam16/data/clevrer/videos/")
+video_dir = Path("YOURPATH/videos/")
 
 
 target_name = "clevrer_train"  # train, val, test

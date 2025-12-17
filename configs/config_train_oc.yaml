@@ -37,7 +37,6 @@ dataset_name: clevrer_train # pusht_expert
 cache_dir: "/cs/data/people/hnam16/.stable_worldmodel"
 output_model_name: world_model_oc
 training_type: video # options: video, wm
-artifact_dir: "/cs/data/people/hnam16/.stable_worldmodel/artifacts"
 # ckpt_dir: "/home/hnam16/.stable_worldmodel"
 
 

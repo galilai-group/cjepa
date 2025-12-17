@@ -1,9 +1,9 @@
 #!/bin/bash
-#SBATCH --job-name=myjob
+#SBATCH --job-name=dinowmreg
 #SBATCH --time=5-00:00:00
 #SBATCH --partition=gpus
-#SBATCH --ntasks=3
-#SBATCH --gres=gpu:nvidia_rtx_a6000:3
+#SBATCH --ntasks=4
+#SBATCH --gres=gpu:nvidia_rtx_a6000:4
 #SBATCH --cpus-per-task=12
 #SBATCH --mem=200G
 #SBATCH --output=slurm-%j.out
@@ -12,4 +12,13 @@
 echo "SLURM job started on: $(date)"
 echo "Node list: $SLURM_NODELIST"
 
-torchrun --nproc_per_node=3 --master-port=29501 train_videowm_reg.py output_model_name="world_model_reg" num_workers=10
+export PYTHONPATH=$(pwd)
+
+torchrun --nproc_per_node=4 --master-port=29501 \
+    train/train_videowm.py \
+    output_model_name="world_model_reg" \
+    dataset_name="clevrer_train" \
+    num_workers=10 \
+    batch_size=64 \
+    max_epochs=30 \
+

@@ -125,13 +125,14 @@ def evaluate_videowm(cfg):
     
     logging.info(f"Total accumulated embeddings: {pred_embeddings_all.shape}")
 
-    rollout_dataset = evaluation.pull_eval_data(
-        cfg.dinowm.history_size+cfg.metrics.feature_rollout_degradation.num_steps,
-        cfg.frameskip,
-        seed=cfg.seed,
-        train_split=cfg.get('train_split', 0.8)
-    )
-    rollout_loader = DataLoader(rollout_dataset, batch_size=cfg.batch_size, num_workers=cfg.num_workers, pin_memory=True)
+    if cfg.metrics.feature_rollout_degradation.enabled:
+        rollout_dataset = evaluation.pull_eval_data(
+            cfg.dinowm.history_size+cfg.metrics.feature_rollout_degradation.num_rollout_steps,
+            cfg.frameskip,
+            seed=cfg.seed,
+            train_split=cfg.get('train_split', 0.8)
+        )
+        rollout_loader = DataLoader(rollout_dataset, batch_size=cfg.batch_size, num_workers=cfg.num_workers, pin_memory=True)
 
     results = evaluation.calculate_metrics( 
             pred_embeddings_all, 

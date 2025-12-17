@@ -15,7 +15,8 @@ from mpl_toolkits.mplot3d import Axes3D
 
 import stable_pretraining as spt
 import stable_worldmodel as swm
-from custom_models.dinowm_oc import OCWM
+from custom_models.dinowm_causal import CausalWM
+from custom_models.cjepa_predictor import MaskedSlotPredictor
 from videosaur.videosaur import  models
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -23,7 +24,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 DINO_PATCH_SIZE = 14
 NUM_FRAMESKIP=5
-VIDEO_PATH = "/users/hnam16/scratch/clevrer/videos/video_08000.mp4"
+VIDEO_PATH = "/users/hnam16/scratch/clevrer/videos/video_08000-09000/video_08000.mp4"
 
 
 def compute_slot_velocities(pca_data: np.ndarray) -> np.ndarray:
@@ -278,6 +279,7 @@ def load_model_from_checkpoint(cfg):
     if cfg.checkpoint_path is None:
         raise ValueError("checkpoint_path must be specified in config!")
     ckpt_path = Path(cfg.checkpoint_path)
+    print(ckpt_path)
     if not ckpt_path.exists():
         raise FileNotFoundError(f"Checkpoint not found: {ckpt_path}")
     logging.info(f"Loading checkpoint from: {ckpt_path}")
@@ -294,11 +296,18 @@ def load_model_from_checkpoint(cfg):
     logging.info(f"Patches: {num_patches}, Embedding dim: {embedding_dim}")
     
     # For VideoWM, no action/proprio encoders
-    predictor = swm.wm.dinowm.CausalPredictor(
-        num_patches=num_patches,
-        num_frames=cfg.dinowm.history_size,
-        dim=embedding_dim,
-        **cfg.predictor,
+    predictor = MaskedSlotPredictor(
+        num_slots=num_patches,  # S: number of slots
+        slot_dim=embedding_dim,  # 64 or higher if action/proprio included
+        history_frames=cfg.dinowm.history_size,  # T: history length
+        pred_frames=cfg.dinowm.num_preds,  # number of future frames to predict
+        num_masked_slots=cfg.get("num_masked_slots", 2),  # M: number of slots to mask
+        seed=cfg.seed,  # for reproducible masking
+        depth=cfg.predictor.get("depth", 6),
+        heads=cfg.predictor.get("heads", 16),
+        dim_head=cfg.predictor.get("dim_head", 64),
+        mlp_dim=cfg.predictor.get("mlp_dim", 2048),
+        dropout=cfg.predictor.get("dropout", 0.1),
     )
 
     # Build action and proprioception encoders
@@ -312,7 +321,7 @@ def load_model_from_checkpoint(cfg):
         proprio_encoder = swm.wm.dinowm.Embedder(in_chans=cfg.dinowm.proprio_dim, emb_dim=cfg.dinowm.proprio_embed_dim)
         logging.info(f"Action dim: {effective_act_dim}, Proprio dim: {cfg.dinowm.proprio_dim}")
     
-    world_model = OCWM(
+    world_model = CausalWM(
         encoder=spt.backbone.EvalOnly(encoder),
         slot_attention=spt.backbone.EvalOnly(slot_attention),
         initializer = spt.backbone.EvalOnly(initializer),
@@ -363,9 +372,10 @@ def slot_interaction(cfg):
         with torch.no_grad():
             x = world_model.encode(frame, target='embed', pixels_key="pixels")
             input_embedding = x["embed"][:, : cfg.dinowm.history_size, :, :] 
-            pred_embedding = world_model.predict(input_embedding)
-            pred_collection.append(pred_embedding[0, 0, :, :].cpu().numpy().squeeze()) # batchsize is always 1
-            gt_collection.append(x["embed"][0, 1, :, :].cpu().numpy().squeeze()) # batchsize is always 1
+            pred_embedding = world_model.predict(input_embedding, use_inference_function=True)
+            print(pred_embedding.shape, x["embed"].shape)
+            pred_collection.append(pred_embedding[0, -1, :, :].cpu().numpy().squeeze()) # batchsize is always 1
+            gt_collection.append(x["embed"][0, -1, :, :].cpu().numpy().squeeze()) # batchsize is always 1
     logging.info(f"Collection length: {len(pred_collection)}")
 
     pred_stacked = np.stack(pred_collection, axis=0) # source: (num_frames, num_slots, embedding_dim)
@@ -375,10 +385,12 @@ def slot_interaction(cfg):
     pca.fit(gt_stacked.reshape(-1, gt_stacked.shape[-1])) # this ensures that the dimension reduction is done on the axis of the last dimension: embedding_dim
     pred_pca = pca.transform(pred_stacked.reshape(-1, pred_stacked.shape[-1])).reshape(pred_stacked.shape[0], -1, 3) # reshape back to (num_frames, num_slots, 3)
     gt_pca = pca.transform(gt_stacked.reshape(-1, gt_stacked.shape[-1])).reshape(gt_stacked.shape[0], -1, 3) # reshape back to (num_frames, num_slots, 3)
-    video_frames_plot = video_frames[1:, :, :, :]  # Align with predictions: (num_frames, C, H, W)
+    video_frames_plot = video_frames[cfg.dinowm.history_size:, :, :, :]  # Align with predictions: (num_frames, C, H, W)
 
     # Create output path
-    output_path = Path(cfg.get('output_dir', './eval_results')) / "slot_interaction.mp4"
+    vidname  = VIDEO_PATH.split('/')[-1].split('.')[0]
+    ckpt_name = cfg.checkpoint_path.split('/')[-1].split('.')[0]
+    output_path = Path(cfg.get('output_dir', './eval_results')) / f"slot_interaction_{vidname}_{ckpt_name}.mp4"
     output_path.parent.mkdir(parents=True, exist_ok=True)
     
     save_video(pred_pca, gt_pca, video_frames_plot, output_path=str(output_path))

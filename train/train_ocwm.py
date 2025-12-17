@@ -138,13 +138,6 @@ def get_world_model(cfg):
 
         return batch
 
-    # Load pretrained videosaur model
-    if cfg.model.load_weights is None or not os.path.isfile(cfg.model.load_weights):
-        download_dir = os.path.join(cfg.artifact_dir, "oc-checkpoints")
-        os.makedirs(download_dir, exist_ok=True)
-        gdown.download("https://drive.google.com/file/d/1qZwWyXXTKbUMJYJ_h65QaO4_fgj_8wBL/view?usp=drive_link", os.path.join(download_dir, "oc_ckpt.ckpt"), quiet=False, fuzzy=True)
-        cfg.model.load_weights = os.path.join(download_dir, "oc_ckpt.ckpt")
-
     model = models.build(cfg.model, cfg.dummy_optimizer, None, None)
     encoder = model.encoder 
     slot_attention = model.processor 

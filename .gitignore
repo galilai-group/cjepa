@@ -1,18 +1,20 @@
+
+# cjepa
 logs/*
-*.err
-*.out
-environment*.json
-requirements_frozen_*.txt
+eval_results/**
+lightning_logs/
+wandb/
+**/environment*.json
+**/requirements_frozen_*.txt
 lightning_logs/
 wandb/
 */launch.json
 *key.*
 temp/*
-output*.txt
 **/*.ckpt
 **/*.mp4
 **vjepa**
-*.sh
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

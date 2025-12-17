@@ -97,7 +97,7 @@ class OCWM(torch.nn.Module):
 
         return info
 
-    def predict(self, embedding):
+    def predict(self, embedding, use_inference_function=False):
         """predict next latent state
         Args:
             embedding: (B, T, P, d)
