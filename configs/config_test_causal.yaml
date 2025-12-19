@@ -18,7 +18,7 @@ training_type: video # options: video, wm
 num_batches: 50
 rollout_batches: 10
 
-checkpoint_path: world_model_oc_epoch_30_object.ckpt
+checkpoint_path: causal_world_model_ver2_epoch_30_object.ckpt
 
 # Model architecture must match training configuration
 image_size: 224
@@ -34,6 +34,8 @@ dinowm:
   action_dim: 2
   action_embed_dim: 10
 
+num_masked_slots: 0  # M: number of slots to mask during training
+
 predictor:
   depth: 6
   heads: 16
@@ -41,6 +43,7 @@ predictor:
   dim_head: 64
   dropout: 0.1
   emb_dropout: 0.0
+
 
 # Evaluation parameters
 batch_size: 32

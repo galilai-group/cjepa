@@ -116,8 +116,6 @@ def get_world_model(cfg):
         """Forward: encode observations, predict next slot states, compute losses.
         
         Loss computation modes:
-        - causal_mask_predict=False: Only predict future, loss on all future slots
-        - causal_mask_predict=True: Predict masked slots + future
           Loss only on:
             * Masked slots in history frames (recovering masked content)
             * All slots in future frames
@@ -137,7 +135,7 @@ def get_world_model(cfg):
 
         # Request mask information for selective loss
         pred_output = self.model.predict(embedding)
-        if pred_output[1] is not None:  # mask_indices available
+        if len(pred_output[1]) > 0:  # mask_indices available
             pred_embedding, mask_indices = pred_output
 
             target_embedding = batch["embed"][:, cfg.dinowm.history_size : cfg.dinowm.history_size + cfg.dinowm.num_preds, :, :]  # (B, num_pred, S, 64)
@@ -152,16 +150,21 @@ def get_world_model(cfg):
                 pred_history[:, :, mask_indices, :],
                 gt_history[:, :, mask_indices, :].detach()
             )
-
-            
             loss_future = F.mse_loss(pred_future, target_embedding.detach())
             batch["loss"] = loss_masked_history + loss_future
             batch["loss_masked_history"] = loss_masked_history
             batch["loss_future"] = loss_future
+        else :
+            pred_embedding = pred_output[0]
+            pred_future = pred_embedding[:, cfg.dinowm.history_size : cfg.dinowm.history_size + cfg.dinowm.num_preds, :, :]       # (B, num_pred, S, 64)
+            target_embedding = batch["embed"][:, cfg.dinowm.history_size : cfg.dinowm.history_size + cfg.dinowm.num_preds, :, :]  # (B, num_pred, S, 64)
+            loss_future = F.mse_loss(pred_future, target_embedding.detach())
+            batch["loss"] = loss_future
+            # batch["loss_future"] = loss_future
 
         
         # Flatten predictions for RankMe: (B, T, S, D) or (B, num_pred, S, D) -> (B*T, S*D) or (B*num_pred, S*D)
-        if cfg.get("causal_mask_predict", False) and isinstance(pred_output, tuple) and len(pred_output) > 0:
+        if isinstance(pred_output, tuple) and len(pred_output) > 0:
             # (B, T, S, D) -> (B*T, S*D)
             B, T, S, D = pred_output[0].shape
             pred_flat = pred_output[0].reshape(B*T, S*D)

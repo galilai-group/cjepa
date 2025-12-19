@@ -1,20 +1,23 @@
 
 # cjepa
-logs/*
 eval_results/**
-lightning_logs/
-wandb/
-**/environment*.json
-**/requirements_frozen_*.txt
-lightning_logs/
-wandb/
-*/launch.json
 *key.*
 temp/*
 **/*.ckpt
 **/*.mp4
 **vjepa**
 
+
+# logs / vscode
+**.out
+**.err
+logs/*
+lightning_logs/
+wandb/
+**/environment*.json
+**/requirements_frozen_*.txt
+*/launch.json
+**.txt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

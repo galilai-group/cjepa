@@ -15,10 +15,10 @@ echo "Node list: $SLURM_NODELIST"
 export PYTHONPATH=$(pwd)
 
 torchrun --nproc_per_node=4 --master-port=29501 \
-    train/train_videowm.py \
+    train/train_videowm_reg.py \
     output_model_name="world_model_reg" \
     dataset_name="clevrer_train" \
     num_workers=10 \
     batch_size=64 \
-    max_epochs=30 \
+    trainer.max_epochs=30 \
 

@@ -121,7 +121,10 @@ class MaskedSlotPredictor(nn.Module):
         device = x.device
         
         # 1. Get Mask Indices
-        is_slot_masked, masked_indices = self.get_mask_indices(B, device)
+        if self.num_masked_slots > 0 :
+            is_slot_masked, masked_indices = self.get_mask_indices(B, device)
+        else:
+            masked_indices = torch.tensor([], dtype=torch.long, device=device)
         
         # 2. Prepare Base Components
         # Anchors: First frame of all slots (B, S, D)
@@ -160,7 +163,10 @@ class MaskedSlotPredictor(nn.Module):
         
         # (B) For UNMASKED (Context) slots, overwrite history (t=1 to T_hist-1)
         # Filter indices for unmasked slots
-        unmasked_indices = torch.where(~is_slot_masked)[0]
+        if self.num_masked_slots > 0:
+            unmasked_indices = torch.where(~is_slot_masked)[0]
+        else:
+            unmasked_indices = torch.arange(0, x.shape[2])
         
         if len(unmasked_indices) > 0 and T_hist > 1:
             # Extract real history for unmasked slots
