@@ -47,6 +47,8 @@ class CausalWM(torch.nn.Module):
         target="embed",
         proprio_key=None,
         action_key=None,
+        return_all_slotstates=False,
+        manual_slot_state=None
     ):
         # assert target not in info, f"{target} key already in info_dict"
         # == pixels embeddings
@@ -59,8 +61,14 @@ class CausalWM(torch.nn.Module):
         # pixels_embed["features"].shape = 8, 4, 1369, 64 > each patch has 64 dim
         # what is pixels_embed["vit_block12"] and pixels_embed["vit_block_keys12"]
         features = pixels_embed["features"]
-        slots_initial = self.initializer(batch_size=B) # bs x slotnum x slotfeat (8x7x64)
+
+        if manual_slot_state is not None:
+            slots_initial = manual_slot_state   
+        else:
+            slots_initial = self.initializer(batch_size=B) # bs x slotnum x slotfeat (8x7x64)
         processor_output = self.slot_attention(slots_initial, features)
+        if return_all_slotstates:
+            all_slot_states = processor_output["all_slot_states"].detach() # bs x nstep+1 x numslot x slotfeat 
         pixels_embed = processor_output["state"] # bs x nstep x numslot x slotfeat (8x4x7x64)
 
         # == improve the embedding
@@ -95,6 +103,8 @@ class CausalWM(torch.nn.Module):
 
         info[target] = embedding  # (B, T, P, d)
 
+        if return_all_slotstates:
+            info["all_slot_states"] = all_slot_states  # (B, T+1, numslot, slotfeat)
         return info
 
     def predict(self, embedding, use_inference_function: bool=False):
@@ -105,7 +115,7 @@ class CausalWM(torch.nn.Module):
             preds: (B, T, P, d) for old-style or (B, num_pred, P, d) for MaskedSlotPredictor
             mask_info: (mask_indices, T) for selective loss computation
         """
-        if use_inference_function:
+        if use_inference_function: # no mask
             preds = self.predictor.inference(embedding)
             return preds
         else:

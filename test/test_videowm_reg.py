@@ -19,7 +19,7 @@ from utils.eval_metrics import rankme, frechet_joint_distance, feature_rollout_d
 
 
 from utils.eval import EvalFramework
-from utils.visualization import visualize
+from utils.global_visualization import visualize
 
 DINO_PATCH_SIZE = 14
 

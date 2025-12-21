@@ -13,7 +13,7 @@ from custom_models.dinowm import DINOWM
 from transformers import AutoModel
 
 from utils.eval import EvalFramework
-from utils.visualization import visualize
+from utils.global_visualization import visualize
 
 DINO_PATCH_SIZE = 14
 

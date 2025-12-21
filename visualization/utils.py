@@ -5,6 +5,7 @@ from loguru import logger as logging
 import numpy as np
 from torchcodec.decoders import VideoDecoder
 import torchvision.transforms.v2 as transforms
+import json
 
 from sklearn.decomposition import PCA
 import seaborn as sns
@@ -19,17 +20,157 @@ from custom_models.dinowm_causal import CausalWM
 from custom_models.cjepa_predictor import MaskedSlotPredictor
 from videosaur.videosaur import  models
 
+
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
-def read_video(video_path, num_frameskip):
+def read_video(video_path, num_frameskip, return_idx=False):
     '''
     Docstring for read_video
     input: video file path
     output: video frames for a whole video with a given frameskip
     '''
     video = VideoDecoder(video_path)
-    return video[0 : -1 : num_frameskip].to(device)
+    if return_idx:
+        idx = np.arange(len(video))[0 : -1 : num_frameskip]
+        return video[0 : -1 : num_frameskip].to(device), idx
+    else:
+        return video[0 : -1 : num_frameskip].to(device)
+
+def eval_colision(stacked_slots, stacked_video_frames_idx, annot_dir=None):
+    """
+    Evaluate collision events between slots based on predicted and ground truth slot trajectories.
+    
+    Args:
+        stacked_slots: (num_frames, num_slots, embedding_dim) predicted slot embeddings
+        stacked_video_frames_idx: List of frame indices corresponding to stacked_slots
+        annot_dir: Path to annotations JSON file containing collision events
+    """
+    # read annotations json
+    if annot_dir is not None:
+        with open(annot_dir, 'r') as f:
+            annotations = json.load(f)
+        collision = annotations['collision']
+        # assert len(collision) == 1
+        num_collision = len(collision)
+        collision_frames = [item['frame_id'] for item in collision]
+
+        # find first nearest and second nearest frames in stacked_video_frames_idx
+        collision_dict = {}
+        allowed_collision_gt = []
+        for c_frame in collision_frames:
+            diffs = np.abs(np.array(stacked_video_frames_idx) - c_frame)
+            nearest_idx = np.argmin(diffs)
+            if nearest_idx == 0:
+                second_nearest_idx = 1
+            elif nearest_idx == len(stacked_video_frames_idx) - 1:
+                second_nearest_idx = len(stacked_video_frames_idx) - 2
+            else:
+                if diffs[nearest_idx - 1] < diffs[nearest_idx + 1]:
+                    second_nearest_idx = nearest_idx - 1
+                else:
+                    second_nearest_idx = nearest_idx + 1
+            collision_dict[c_frame] = (nearest_idx, second_nearest_idx)
+            allowed_collision_gt.append(int(stacked_video_frames_idx[nearest_idx]))
+            allowed_collision_gt.append(int(stacked_video_frames_idx[second_nearest_idx]))
+        
+        detected_collision_frames = detect_collision_frames(stacked_slots, num_collision, stacked_video_frames_idx)
+
+        true_positives = []
+        false_positives = []
+        for tuple_pair in detected_collision_frames:
+            if tuple_pair[0] in allowed_collision_gt or tuple_pair[1] in allowed_collision_gt:
+                true_positives.append(tuple_pair)
+            else:
+                false_positives.append(tuple_pair)
+        false_negatives_len = num_collision - len(true_positives)
+
+
+        # calculate acc, prec, recision, f1
+        # true_positives = set(detected_collision_frames).intersection(set(allowed_collision_gt))
+        # false_positives = set(detected_collision_frames) - set(allowed_collision_gt)
+        # false_negatives = set(allowed_collision_gt) - set(detected_collision_frames)
+        precision = len(true_positives) / (len(true_positives) + len(false_positives) + 1e-8)
+        recall = len(true_positives) / (len(true_positives) + false_negatives_len + 1e-8)
+        f1 = 2 * (precision * recall) / (precision + recall + 1e-8)
+        acc = len(true_positives) / num_collision
+    
+
+    return {
+        'num_collision_gt': int(num_collision),
+        'gt_collision_frames': [x for x in allowed_collision_gt],
+        'detected_collision_frames': [x for x in detected_collision_frames],
+        'precision': float(precision),
+        'recall': float(recall),
+        'f1_score': float(f1),
+        'accuracy': float(acc)
+    }
+        
+
+
+        
+def detect_collision_frames(slot_embeddings: np.ndarray, num_collisions: int, stacked_video_frames_idx) -> list:
+    """
+    Detect collision frames based on sudden changes in all slot embeddings.
+    
+    Computes the total change (sum of all slot changes) at each frame transition,
+    then returns the top-k frames with the largest total changes.
+    
+    Args:
+        slot_embeddings: (num_frames, num_slots, embedding_dim) slot embeddings over time
+        num_collisions: Number of collision events to detect (returns top-k frames)
+        stacked_video_frames_idx: List of original frame indices corresponding to slot_embeddings
+        
+    Returns:
+        collision_frames: List of frame indices (sorted by change magnitude, descending)
+                         Each index represents frame t where large change occurred between t and t+1
+    """
+    num_frames, num_slots, embed_dim = slot_embeddings.shape
+    
+    if num_frames < 2:
+        return []
+    
+    # Compute frame-to-frame differences for each slot
+    # diffs[t] = embeddings[t+1] - embeddings[t]
+    diffs = slot_embeddings[1:] - slot_embeddings[:-1]  # (num_frames-1, num_slots, embed_dim)
+    
+    # Compute L2 norm of change for each slot at each timestep
+    change_per_slot = np.linalg.norm(diffs, axis=2)  # (num_frames-1, num_slots)
+    
+    # Sum across all slots to get total change per frame
+    total_change_per_frame = np.sum(change_per_slot, axis=1)  # (num_frames-1,)
+    sorted_vals = np.argsort(total_change_per_frame)[::-1]
+    
+    # Get top-k frames with largest total changes, but should be paired with t and t+1
+    collision_frames = []
+    for t in range(num_collisions):
+        top_index = sorted_vals[0]
+        # handle edge cases
+        if top_index == 0:
+            top_index_pair = 1
+        elif top_index == len(total_change_per_frame) -1:
+            top_index_pair = top_index -1
+        elif top_index + 1 not in sorted_vals:
+            top_index_pair = top_index -1
+        elif top_index -1 not in sorted_vals:
+            top_index_pair = top_index +1
+        else:
+            top_index_pair = top_index + 1 if total_change_per_frame[top_index + 1] > total_change_per_frame[top_index - 1] else top_index -1
+        # remove top_index, top_index_pair from sorted
+        indices = np.where((sorted_vals != top_index) & (sorted_vals != top_index_pair))
+        sorted_vals = sorted_vals[indices]
+        collision_frames.append(((int(stacked_video_frames_idx[top_index]), int(stacked_video_frames_idx[top_index_pair]))))
+
+
+
+    # num_to_detect = min(num_collisions, len(total_change_per_frame))
+    # top_indices = np.argsort(total_change_per_frame)[::-1][:num_to_detect]
+    
+    # # Return as sorted list of frame indices
+    # collision_frames = [int(idx) for idx in top_indices]
+    
+    return collision_frames
+
 
 def compute_slot_velocities(pca_data: np.ndarray) -> np.ndarray:
     """

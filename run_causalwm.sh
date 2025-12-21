@@ -2,9 +2,9 @@
 #SBATCH --job-name=dinowmreg
 #SBATCH --time=5-00:00:00
 #SBATCH --partition=gpus
-#SBATCH --ntasks=3
-#SBATCH --gres=gpu:nvidia_rtx_a6000:3
-#SBATCH --cpus-per-task=12
+#SBATCH --ntasks=6
+#SBATCH --gres=gpu:nvidia_rtx_a6000:6
+#SBATCH --cpus-per-task=11
 #SBATCH --mem=200G
 #SBATCH --output=slurm-%j.out
 #SBATCH --error=slurm-%j.err
@@ -14,7 +14,7 @@ echo "Node list: $SLURM_NODELIST"
 
 export PYTHONPATH=$(pwd)
 
-torchrun --nproc_per_node=3 --master-port=29502 \
+torchrun --nproc_per_node=6 --master-port=29502 \
     train/train_causalwm.py \
     output_model_name="world_model_causal_4mask" \
     dataset_name="clevrer_train" \

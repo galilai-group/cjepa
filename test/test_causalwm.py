@@ -14,7 +14,7 @@ from custom_models.cjepa_predictor import MaskedSlotPredictor
 from videosaur.videosaur import  models
 
 from utils.eval import EvalFramework
-from utils.visualization import visualize
+from utils.global_visualization import visualize
 
 DINO_PATCH_SIZE = 14
 

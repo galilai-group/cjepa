@@ -118,12 +118,12 @@ class ScanOverTime(nn.Module):
         self.pass_step = pass_step
 
     def forward(self, initial_state: torch.Tensor, inputs: torch.Tensor):
-        # initial_state: batch x ...
-        # inputs: batch x n_frames x ...
         seq_len = inputs.shape[1]
 
         state = initial_state
         outputs = []
+        all_states = [initial_state]  # Start with initial state
+        
         for t in range(seq_len):
             if self.pass_step:
                 output = self.module(state, inputs[:, t], t)
@@ -131,8 +131,13 @@ class ScanOverTime(nn.Module):
                 output = self.module(state, inputs[:, t])
             outputs.append(output)
             state = output[self.next_state_key]
+            all_states.append(state)  # Collect state after each frame
 
-        return merge_dict_trees(outputs, axis=1)
+        merged = merge_dict_trees(outputs, axis=1)
+        # Stack all states: (batch, n_frames+1, n_slots, slot_dim)
+        merged["all_slot_states"] = torch.stack(all_states, dim=1)
+        
+        return merged
 
 
 def merge_dict_trees(trees: List[Mapping], axis: int = 0):
