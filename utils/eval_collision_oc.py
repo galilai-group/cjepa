@@ -16,7 +16,7 @@ from custom_models.cjepa_predictor import MaskedSlotPredictor
 from videosaur.videosaur import  models
 
 from visualization.utils import eval_colision, read_video
-from visualization.model import load_causal_model_from_checkpoint
+from visualization.model import load_OC_model_from_checkpoint
 
 
 
@@ -36,7 +36,7 @@ def slot_interaction(cfg):
     np.random.seed(cfg.seed)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    world_model = load_causal_model_from_checkpoint(cfg)
+    world_model = load_OC_model_from_checkpoint(cfg)
     world_model = world_model.to(device)
 
     video_files = sorted(glob.glob(VIDEO_PATH))
@@ -115,7 +115,7 @@ def slot_interaction(cfg):
     
 
 
-@hydra.main(version_base=None, config_path="../configs", config_name="config_test_causal")
+@hydra.main(version_base=None, config_path="../configs", config_name="config_test_oc")
 def run(cfg):
     """Entry point for evaluation."""
     logging.info(f"Slot interaction for {VIDEO_PATH}")

@@ -17,6 +17,7 @@ training_type: video # options: video, wm
 # For evaluation 
 num_batches: 50
 rollout_batches: 10
+collision_tolerance: 1
 
 checkpoint_path: causal_world_model_ver2_epoch_30_object.ckpt
 

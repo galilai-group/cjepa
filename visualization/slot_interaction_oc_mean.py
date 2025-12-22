@@ -26,7 +26,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 DINO_PATCH_SIZE = 14
 NUM_FRAMESKIP=5
-VIDEO_PATH = "/cs/data/people/hnam16/data/clevrer/videos/video_09500.mp4"
+VIDEO_PATH = "/cs/data/people/hnam16/data/clevrer/videos/video_08000.mp4"
 PCA_COMPONENTS = 2
    
 
@@ -57,7 +57,7 @@ def slot_interaction(cfg):
             x = world_model.encode(frame, target='embed', pixels_key="pixels")
             input_embedding = x["embed"][:, : cfg.dinowm.history_size, :, :] 
             pred_embedding = world_model.predict(input_embedding, use_inference_function=False)
-            print(pred_embedding.shape, x["embed"].shape)
+            # print(pred_embedding.shape, x["embed"].shape)
             
             pred = pred_embedding[0, -1, :, :].cpu().numpy().squeeze()
             pred -= pred.mean(axis=0, keepdims=True) 

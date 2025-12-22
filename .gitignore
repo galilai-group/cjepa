@@ -18,6 +18,8 @@ wandb/
 **/requirements_frozen_*.txt
 */launch.json
 **.txt
+**.csv
+**collision*.pt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
