@@ -4,29 +4,44 @@ import os
 import sys
 import pwd
 import importlib
+from pathlib import Path
 import argparse
 import wandb
-
+from loguru import logger as logging
+from omegaconf import OmegaConf
 import torch
-
+import hydra
+from torch.utils.data import DataLoader
+from visualization.model import load_causal_model_from_checkpoint
+from custom_models.dinowm_causal import CausalWM
+from custom_models.cjepa_predictor import MaskedSlotPredictor
+from videosaur.videosaur import  models
+import stable_pretraining as spt
+import stable_worldmodel as swm
 from nerv.utils import mkdir_or_exist
 from nerv.training import BaseDataModule
+
+DINO_PATCH_SIZE = 14  # DINO encoder uses 14x14 patches
+
+# ============================================================================
+# Main Entry Point
+# ============================================================================
 
 
 def main(params):
     # build datamodule
-    # datasets = build_dataset(params)
-    # train_set, val_set = datasets[0], datasets[1]
-    # collate_fn = datasets[2] if len(datasets) == 3 else None
-    # datamodule = BaseDataModule(
-    #     params,
-    #     train_set=train_set,
-    #     val_set=val_set,
-    #     use_ddp=params.ddp,
-    #     collate_fn=collate_fn,
-    # )
+    # data = get_data(cfg)
+    datasets = build_dataset(params)
+    train_set, val_set = datasets[0], datasets[1]
+    collate_fn = datasets[2] if len(datasets) == 3 else None
+    datamodule = BaseDataModule(
+        params,
+        train_set=train_set,
+        val_set=val_set,
+        use_ddp=params.ddp,
+        collate_fn=collate_fn,
+    )
 
-    # build model
     model = build_model(params)
 
     # create checkpoint dir

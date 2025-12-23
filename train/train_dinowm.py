@@ -3,16 +3,24 @@ from pathlib import Path
 import hydra
 import lightning as pl
 import stable_pretraining as spt
+import stable_worldmodel as swm
 import torch
-from lightning.pytorch.callbacks import Callback
+import torchvision
+from lightning.pytorch.callbacks import Callback, ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
+from lightning.pytorch.strategies import DDPStrategy
+
 from loguru import logger as logging
 from omegaconf import OmegaConf
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from transformers import AutoModel
+import wandb
+from custom_models.dinowm import DINOWM
 
-import stable_worldmodel as swm
+
+
+
 
 
 DINO_PATCH_SIZE = 14  # DINO encoder uses 14x14 patches
@@ -125,7 +133,7 @@ def get_world_model(cfg):
         pred_embedding = self.model.predict(embedding)
         target_embedding = batch["embed"][:, cfg.dinowm.num_preds :, :, :]  # (B, T-1, patches, dim)
 
-        # Compute pixel reconstruction loss
+        # Compute pixel latent prediction loss
         pixels_dim = batch["pixels_embed"].shape[-1]
         pixels_loss = F.mse_loss(pred_embedding[..., :pixels_dim], target_embedding[..., :pixels_dim].detach())
         batch["pixels_loss"] = pixels_loss
@@ -146,17 +154,19 @@ def get_world_model(cfg):
 
         # Log all losses
         prefix = "train/" if self.training else "val/"
-        losses_dict = {f"{prefix}{k}": v.detach() for k, v in batch.items() if "_loss" in k}
+        losses_dict = {f"{prefix}{k}": v.detach() for k, v in batch.items() if "loss" in k}
         self.log_dict(losses_dict, on_step=True, sync_dist=True)  # , on_epoch=True, sync_dist=True)
 
         return batch
 
     # Load frozen DINO encoder
-    encoder = AutoModel.from_pretrained("facebook/dinov2-small")
+    encoder = AutoModel.from_pretrained("facebook/dinov2-small") # yes cls, .last
     embedding_dim = encoder.config.hidden_size
 
     num_patches = (cfg.image_size // cfg.patch_size) ** 2
-    embedding_dim += cfg.dinowm.proprio_embed_dim + cfg.dinowm.action_embed_dim  # Total embedding size
+
+    if cfg.training_type == "wm":
+        embedding_dim += cfg.dinowm.proprio_embed_dim + cfg.dinowm.action_embed_dim  # Total embedding size
 
     logging.info(f"Patches: {num_patches}, Embedding dim: {embedding_dim}")
 
@@ -169,14 +179,20 @@ def get_world_model(cfg):
     )
 
     # Build action and proprioception encoders
-    effective_act_dim = cfg.frameskip * cfg.dinowm.action_dim
-    action_encoder = swm.wm.dinowm.Embedder(in_chans=effective_act_dim, emb_dim=cfg.dinowm.action_embed_dim)
-    proprio_encoder = swm.wm.dinowm.Embedder(in_chans=cfg.dinowm.proprio_dim, emb_dim=cfg.dinowm.proprio_embed_dim)
+    if cfg.training_type == "video":    
+        action_encoder = None
+        proprio_encoder = None
 
-    logging.info(f"Action dim: {effective_act_dim}, Proprio dim: {cfg.dinowm.proprio_dim}")
+        logging.info(f"[Video Only] Action encoder: None, Proprio encoder: None")
+    else :
+        effective_act_dim = cfg.frameskip * cfg.dinowm.action_dim
+        action_encoder = swm.wm.dinowm.Embedder(in_chans=effective_act_dim, emb_dim=cfg.dinowm.action_embed_dim)
+        proprio_encoder = swm.wm.dinowm.Embedder(in_chans=cfg.dinowm.proprio_dim, emb_dim=cfg.dinowm.proprio_embed_dim)
+
+        logging.info(f"Action dim: {effective_act_dim}, Proprio dim: {cfg.dinowm.proprio_dim}")
 
     # Assemble world model
-    world_model = swm.wm.DINOWM(
+    world_model = DINOWM(
         encoder=spt.backbone.EvalOnly(encoder),
         predictor=predictor,
         action_encoder=action_encoder,
