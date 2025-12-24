@@ -107,7 +107,6 @@ def evaluate_videowm(cfg):
         cfg.n_steps,
         cfg.frameskip,
         seed=cfg.seed,
-        train_split=cfg.get('train_split', 0.8)
     )
     eval_loader = DataLoader(eval_dataset, batch_size=cfg.batch_size, num_workers=cfg.num_workers, pin_memory=True)
     

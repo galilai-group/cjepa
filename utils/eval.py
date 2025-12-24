@@ -57,6 +57,16 @@ class EvalFramework():
             spt.data.transforms.Resize(img_size, source=key, target=target),
             spt.data.transforms.CenterCrop(img_size, source=key, target=target),
         )
+    @staticmethod
+    def _get_img_pipeline_minimal(key: str, target: str, img_size: int = 224):
+        return spt.data.transforms.Compose(
+            spt.data.transforms.ToImage(
+                **spt.data.dataset_stats.ImageNet,
+                source=key,
+                target=target,
+            ),
+            spt.data.transforms.Resize(img_size, source=key, target=target),
+        )
 
     @staticmethod
     def _norm_col_transform(dataset, col: str = "pixels"):
@@ -104,7 +114,6 @@ class EvalFramework():
         n_steps: int,
         frameskip: int,
         seed: int,
-        train_split: float = 0.8,
     ):
         """Setup dataset with image transforms and normalization.
         
@@ -112,48 +121,47 @@ class EvalFramework():
             n_steps: Number of timesteps in each sample
             frameskip: Frame skip between samples
             seed: Random seed for reproducibility
-            train_split: Split ratio for train/val
             
         Returns:
             Validation dataset with applied transforms
         """
-        dataset = swm.data.VideoDataset(
-            self.dataset_name,
+
+        val_set = swm.data.VideoDataset(
+            self.dataset_name+"_val",
             num_steps=n_steps,
             frameskip=frameskip,
             transform=None,
             cache_dir=self.cache_dir,
         )
-        if self.type != "video":
-            norm_action_transform = self._norm_col_transform(dataset.dataset, "action")
-            norm_proprio_transform = self._norm_col_transform(dataset.dataset, "proprio")
+        # Apply transforms to all steps
+        if "clevrer" in self.dataset_name:
             transform = spt.data.transforms.Compose(
+                *[self._get_img_pipeline_minimal(f"{col}.{i}", f"{col}.{i}", self.img_size) for col in ["pixels"] for i in range(n_steps)],
+            )
+            val_set.transform = transform
+        else :
+
+            val_transform = spt.data.transforms.Compose(
                 *[self._get_img_pipeline(f"{col}.{i}", f"{col}.{i}", self.img_size) for col in ["pixels"] for i in range(n_steps)],
                 spt.data.transforms.WrapTorchTransform(
-                    norm_action_transform,
+                    self._norm_col_transform(val_set.dataset, "action"),
                     source="action",
                     target="action",
                 ),
                 spt.data.transforms.WrapTorchTransform(
-                    norm_proprio_transform,
+                    self._norm_col_transform(val_set.dataset, "proprio"),
                     source="proprio",
                     target="proprio",
                 ),
             )
-        else:
-            transform = spt.data.transforms.Compose(*[self._get_img_pipeline(f"{col}.{i}", f"{col}.{i}", self.img_size) for col in ["pixels"] for i in range(n_steps)])
-        dataset.transform = transform
+            val_set.transform = val_transform
         
         # Split into train/val using seed for reproducibility
         rnd_gen = torch.Generator().manual_seed(seed)
-        _, val_set = spt.data.random_split(
-            dataset,
-            lengths=[train_split, 1 - train_split],
-            generator=rnd_gen
-        )
         logging.info(f"Eval Size: {len(val_set)}")
 
         return val_set
+    
     def get_eval_embeddings(
         self,
         eval_loader: DataLoader,
