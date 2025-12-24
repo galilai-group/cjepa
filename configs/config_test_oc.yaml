@@ -10,7 +10,7 @@ hydra:
   output_subdir: null
 
 # Dataset configuration (use validation or test split)
-dataset_name: clevrer_train
+dataset_name: clevrer
 cache_dir: "/users/hnam16/scratch/.stable_worldmodel"
 training_type: video # options: video, wm
 

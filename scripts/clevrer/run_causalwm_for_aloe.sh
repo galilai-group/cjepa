@@ -17,7 +17,7 @@ export PYTHONPATH=$(pwd)
 torchrun --nproc_per_node=3 --master-port=29501 \
     train/train_causalwm.py \
     output_model_name="world_model_causal_nomask_aloe" \
-    dataset_name="clevrer_train" \
+    dataset_name="clevrer" \
     num_workers=10 \
     batch_size=64 \
     trainer.max_epochs=30 \

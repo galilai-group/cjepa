@@ -17,7 +17,7 @@ export PYTHONPATH=$(pwd)
 torchrun --nproc_per_node=4 --master-port=29502 \
     train/train_ocwm.py \
     output_model_name="world_model_oc" \
-    dataset_name="clevrer_train" \
+    dataset_name="clevrer" \
     num_workers=10 \
     batch_size=64 \
     trainer.max_epochs=30 \

@@ -33,7 +33,7 @@ wandb:
   project: cjepa
   entity: heejeong_nam-brown-university
 
-dataset_name: clevrer_train # pusht_expert
+dataset_name: clevrer # pusht_expert
 cache_dir: "/cs/data/people/hnam16/.stable_worldmodel"
 ckpt_dir: "/home/hnam16/.stable_worldmodel"
 output_model_name: world_model

@@ -45,6 +45,15 @@ def get_data(cfg):
             spt.data.transforms.Resize(img_size, source=key, target=target),
             spt.data.transforms.CenterCrop(img_size, source=key, target=target),
         )
+    def get_img_pipeline_minimal(key, target, img_size=224):
+        return spt.data.transforms.Compose(
+            spt.data.transforms.ToImage(
+                **spt.data.dataset_stats.ImageNet,
+                source=key,
+                target=target,
+            ),
+            spt.data.transforms.Resize(img_size, source=key, target=target),
+        )    
 
     def norm_col_transform(dataset, col="pixels"):
         """Normalize column to zero mean, unit variance."""
@@ -53,8 +62,15 @@ def get_data(cfg):
         std = data.std(0).unsqueeze(0)
         return lambda x: (x - mean) / std
 
-    dataset = swm.data.VideoDataset(
-        cfg.dataset_name,
+    train_set = swm.data.VideoDataset(
+        cfg.dataset_name + "_train",
+        num_steps=cfg.n_steps,
+        frameskip=cfg.frameskip,
+        transform=None,
+        cache_dir=cfg.get("cache_dir", None),
+    )    
+    val_set = swm.data.VideoDataset(
+        cfg.dataset_name + "_val",
         num_steps=cfg.n_steps,
         frameskip=cfg.frameskip,
         transform=None,
@@ -64,29 +80,48 @@ def get_data(cfg):
     # Image size must be multiple of DINO patch size (14)
     img_size = (cfg.image_size // cfg.patch_size) * DINO_PATCH_SIZE
 
-    # norm_action_transform = norm_col_transform(dataset.dataset, "action")
-    # norm_proprio_transform = norm_col_transform(dataset.dataset, "proprio")
+
 
     # Apply transforms to all steps
-    transform = spt.data.transforms.Compose(
-        *[get_img_pipeline(f"{col}.{i}", f"{col}.{i}", img_size) for col in ["pixels"] for i in range(cfg.n_steps)],
-        # spt.data.transforms.WrapTorchTransform(
-        #     norm_action_transform,
-        #     source="action",
-        #     target="action",
-        # ),
-        # spt.data.transforms.WrapTorchTransform(
-        #     norm_proprio_transform,
-        #     source="proprio",
-        #     target="proprio",
-        # ),
-    )
+    if "clevrer" in cfg.dataset_name:
+        transform = spt.data.transforms.Compose(
+            *[get_img_pipeline_minimal(f"{col}.{i}", f"{col}.{i}", img_size) for col in ["pixels"] for i in range(cfg.n_steps)],
+        )
+        train_set.transform = transform
+        val_set.transform = transform
+    else :
+        train_transform = spt.data.transforms.Compose(
+            *[get_img_pipeline(f"{col}.{i}", f"{col}.{i}", img_size) for col in ["pixels"] for i in range(cfg.n_steps)],
+            spt.data.transforms.WrapTorchTransform(
+                norm_col_transform(train_set.dataset, "action"),
+                source="action",
+                target="action",
+            ),
+            spt.data.transforms.WrapTorchTransform(
+                norm_col_transform(train_set.dataset, "proprio"),
+                source="proprio",
+                target="proprio",
+            ),
+        )
+        val_transform = spt.data.transforms.Compose(
+            *[get_img_pipeline(f"{col}.{i}", f"{col}.{i}", img_size) for col in ["pixels"] for i in range(cfg.n_steps)],
+            spt.data.transforms.WrapTorchTransform(
+                norm_col_transform(val_set.dataset, "action"),
+                source="action",
+                target="action",
+            ),
+            spt.data.transforms.WrapTorchTransform(
+                norm_col_transform(val_set.dataset, "proprio"),
+                source="proprio",
+                target="proprio",
+            ),
+        )
+        train_set.transform = train_transform
+        val_set.transform = val_transform
 
-    dataset.transform = transform
+
     rnd_gen = torch.Generator().manual_seed(cfg.seed)
-    train_set, val_set = spt.data.random_split(
-        dataset, lengths=[cfg.train_split, 1 - cfg.train_split], generator=rnd_gen
-    )
+
     logging.info(f"Train: {len(train_set)}, Val: {len(val_set)}")
 
     train = DataLoader(
