@@ -35,10 +35,11 @@ Create a folder named `videos/`, place the required videos inside it, and then r
 Use scripts below, or refer to the command if you are not using slurm.
 
 ```sh
-sbatch videowm.sh # run DINOwm
-sbatch videowm_reg.sh # run DINOwm, but with dinov2_with_register checkpoint
-sbatch ocwm.sh # run object centric world model, need VIDEOSAUR checkpoint downloaded from above.
-sbatch causalwm.sh # run causalwm, which has causal slot masking with VJEPA style predictor.
+sbatch script/{dataset}/videowm.sh # run DINOwm with mp4
+sbatch script/{dataset}/dinowm.sh # run DINOwm with stepsdataset
+sbatch script/{dataset}/videowm_reg.sh # run DINOwm, but with dinov2_with_register checkpoint
+sbatch script/{dataset}/ocwm.sh # run object centric world model, need VIDEOSAUR checkpoint downloaded from above.
+sbatch script/{dataset}/causalwm.sh # run causalwm, which has causal slot masking with VJEPA style predictor.
 ```
 
 * All config files are in `configs/`.
@@ -59,7 +60,20 @@ sbatch causalwm.sh # run causalwm, which has causal slot masking with VJEPA styl
 * OCWM and Causal WMs are trained with VIDEOSAUR checkpoint with `weight_sim=0.1`
 * These checkpoints are trained with `train_split=0.8` and `seed=42`, among videos from `video_00000` from `video_10000`. (So there are some data leakage now, sorry my bad)
 
-# Evaluation and Visualization 
+
+# CLEVRER VQA
+
+```
+# clevrer_slots.pkl :
+{
+    'train': {'video_0001': slots, 'video_0002': slots, ...},  # [128, 7, 64] each
+    'val': {...},
+    'test': {...}
+}
+```
+
+
+# ~~Evaluation and Visualization~~
 
 ## How to run 
 ```sh

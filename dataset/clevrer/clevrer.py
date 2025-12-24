@@ -12,7 +12,7 @@ import stable_worldmodel as swm
 # you can add the metadata of clevrer as extra columns, I leave it to you ;)
 
 # expect path towards a single directory containing all .mp4 video files of clevrer
-video_dir = Path("YOURPATH/videos/")
+video_dir = Path("/cs/data/people/hnam16/data/clevrer/videos/")
 
 
 target_name = "clevrer_train"  # train, val, test
@@ -20,7 +20,7 @@ records = {"episode_idx": [], "step_idx": [], "pixels": [], "episode_len": []}
 
 # create dataset directory if it doesn't exist
 # dataset_dir = swm.data.utils.get_cache_dir() / target_name
-dataset_dir = Path('/cs/data/people/hnam16/.stable_worldmodel/clevrer_train')
+dataset_dir = Path('/cs/data/people/hnam16/.stable_worldmodel/clevrer_val')
 os.makedirs(dataset_dir, exist_ok=True)
 
 # make videos dataset

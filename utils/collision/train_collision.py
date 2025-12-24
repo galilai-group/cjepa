@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 import wandb
 from tqdm import tqdm
 from custom_models.collision_detector import build_collision_detector
-from utils.dataset_slot_feature import SlotFeatureDataset
+from utils.collision.dataset_slot_feature import SlotFeatureDataset
 from pathlib import Path
 
 
