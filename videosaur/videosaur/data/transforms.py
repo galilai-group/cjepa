@@ -278,6 +278,27 @@ class ToTensorInput:
             tensor = einops.rearrange(tensor, "h w c -> c h w")
         return tensor
 
+# Note : not recommended. Use temporal_subsample_keys from pipelines.py instead
+# class TemporalSubsample:
+#     """Temporal subsampling for raw video arrays.
+
+#     Operates on numpy arrays with shape (F, H, W, C) and returns a subsampled
+#     numpy array using the stride `num_frameskip`: arr[0::stride]
+#     """
+
+#     def __init__(self, stride: int = 1):
+#         assert isinstance(stride, int) and stride >= 1
+#         self.stride = stride
+
+#     def __call__(self, array: np.ndarray) -> np.ndarray:
+#         if array is None:
+#             return None
+#         # If array has fewer than 1 dim, return as-is
+#         if not hasattr(array, "shape") or len(array.shape) == 0:
+#             return array
+#         # Expecting shape (F, H, W, C) — slice first axis
+#         return array[0:: self.stride]
+
 
 class Normalize:
     def __init__(self, dataset_type: str, mean, std):

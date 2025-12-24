@@ -14,8 +14,12 @@ def build(config, name: Optional[str] = "VideoPipeline", **kwargs):
     name = config.get("name") or name
     if name in ("video", "VideoPipeline"):
         tfs = transforms.build(config.transforms) if config.transforms else None
+        # num_frameskip is only supported at the pipeline level (e.g. train_pipeline.num_frameskip)
+        num_frameskip = config.get("num_frameskip", None)
+
         pipeline = VideoPipeline(
             transforms=tfs,
+            num_frameskip=int(num_frameskip) if num_frameskip is not None else None,
             **config_as_kwargs(config, to_filter=("transforms",), defaults=kwargs),
         )
     elif name in ("image", "ImagePipeline"):
@@ -127,6 +131,7 @@ class VideoPipeline(DataPipeline):
         shuffle: bool = False,
         shuffle_size: int = 100,
         duplicate: Optional[Dict[str, str]] = None,
+        num_frameskip: Optional[int] = None,
     ):
         super().__init__(keys)
         self.transforms = transforms
@@ -139,6 +144,7 @@ class VideoPipeline(DataPipeline):
         self.shuffle = shuffle
         self.shuffle_size = shuffle_size
         self.duplicate = duplicate
+        self.num_frameskip = num_frameskip
 
     def get_num_samples(self, num_orig_samples: int) -> Optional[int]:
         if self.use_chunks:
@@ -154,6 +160,9 @@ class VideoPipeline(DataPipeline):
 
     def apply(self, dataset: wds.WebDataset) -> wds.WebDataset:
         if self.use_chunks:
+            # Apply temporal subsampling BEFORE splitting into chunks if requested.
+            if self.num_frameskip is not None and int(self.num_frameskip) > 1:
+                dataset = dataset.map(partial(temporal_subsample_keys, keys_to_subsample=self.keys, stride=int(self.num_frameskip)))
             # If sampling chunks, need to shuffle as well to pick a random chunk
             shuffle = self.shuffle or self.sample_one_chunk_per_video
             split_fn = partial(
@@ -226,5 +235,22 @@ def split_to_chunks(
 def copy_dict_entries(dictionary: Dict[str, Any], copy_from_to: Dict[str, str]) -> Dict[str, Any]:
     for from_key, to_key in copy_from_to.items():
         dictionary[to_key] = dictionary[from_key]
+
+    return dictionary
+
+
+def temporal_subsample_keys(dictionary: Dict[str, Any], keys_to_subsample: Tuple[str], stride: int = 1) -> Dict[str, Any]:
+    """Subsample temporal axis (first axis) for the given keys in the sample dict.
+
+    Expects numpy arrays with shape (F, ...). Returns the modified dictionary.
+    """
+    for key in keys_to_subsample:
+        if key in dictionary and isinstance(dictionary[key], (list, tuple, np.ndarray)):
+            arr = dictionary[key]
+            try:
+                dictionary[key] = arr[0:: stride]
+            except Exception:
+                # If not sliceable, keep original
+                pass
 
     return dictionary

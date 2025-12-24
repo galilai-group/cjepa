@@ -4,7 +4,7 @@ experiment_name: clevrer_dinov2
 
 globals:
   NUM_SLOTS: 7
-  SLOT_DIM: 64
+  SLOT_DIM: 128
   DINO_MODEL: vit_small_patch14_dinov2.lvd142m
   FEAT_DIM: 384
   NUM_PATCHES: 196
@@ -133,12 +133,13 @@ dataset:
   train_shards: "../../scratch/clevrer_wds/train/clevrer-train-{000000..000099}.tar"
   val_shards: "../../scratch/clevrer_wds/validation/clevrer-train-{000100..000149}.tar"
   batch_size: ${globals.BATCH_SIZE_PER_GPU}
-  val_batch_size: 16
+  val_batch_size: ${globals.BATCH_SIZE_PER_GPU}
   val_size: 200
   num_workers: 5 # increase this if you have more CPU cores
   num_val_workers: 4
   train_pipeline:
-    chunk_size: 4
+    chunk_size: 6
+    num_frameskip: 2    # keep every 2nd frame: 0,2,4,...
     keys: [video]
     sample_one_chunk_per_video: true
     transforms:
@@ -149,7 +150,8 @@ dataset:
       h_flip_prob: 0.5
   val_pipeline:
     use_chunks: true
-    chunk_size: 6
+    chunk_size: 10
+    num_frameskip: 2 
     keys: [video]
     transforms:
       name: clevrer_val
