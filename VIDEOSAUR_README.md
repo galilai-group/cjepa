@@ -76,7 +76,7 @@ If you are not using wandb, you should set wandb config to `False`
 
 * HF-based
 ```
-PYTHONPATH=. python -m  pdb videosaur/train.py configs/videosaur/clevrer_dinov2_hf.yml 
+PYTHONPATH=. python videosaur/train.py configs/videosaur/clevrer_dinov2_hf.yml 
 ```
 * Timm-based
 ```

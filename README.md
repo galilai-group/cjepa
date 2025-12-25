@@ -6,6 +6,12 @@ conda install anaconda::ffmpeg
 pip install seaborn webdataset swig einops
 pip install -e ./stable-pretraining
 pip install -e ./stable-worldmodel
+pip install accelerate tensorboard tensorboardX.  # for videosaur 
+```
+to run ALOE for clevrer VQA, install `nerv` and s`pycocotools` as well.
+```
+pip install -e ./nerv
+pip install pycocotools
 ```
 
 # Dataset

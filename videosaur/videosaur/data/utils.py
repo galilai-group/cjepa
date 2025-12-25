@@ -8,7 +8,7 @@ import torch
 
 log = logging.getLogger(__name__)
 
-DEFAULT_DATA_DIR = ".."
+DEFAULT_DATA_DIR = "/cs/data/people/hnam16/data/clevrer_wds"
 
 
 def get_data_root_dir(error_on_missing_path: bool = False) -> Optional[str]:

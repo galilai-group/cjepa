@@ -34,7 +34,7 @@ trainer:
 optimizer:
   name: Adam
   # Scale learning rate by batch size: take base lr once for every 32 samples
-  lr: "${eval: 'a / 32 * b', ${globals.TOTAL_BATCH_SIZE}, ${globals.BASE_LR}}"
+  lr: "${eval_dummy: 'a / 32 * b', ${globals.TOTAL_BATCH_SIZE}, ${globals.BASE_LR}}"
   lr_scheduler:
     name: exp_decay_with_warmup
     warmup_steps: 2000
@@ -130,8 +130,8 @@ model:
 val_metrics: null
 
 dataset:
-  train_shards: "../../scratch/clevrer_wds/train/clevrer-train-{000000..000099}.tar"
-  val_shards: "../../scratch/clevrer_wds/validation/clevrer-train-{000100..000149}.tar"
+  train_shards: "/cs/data/people/hnam16/data/clevrer_wds/train/clevrer-train_videos-{000000..000196}.tar"
+  val_shards: "/cs/data/people/hnam16/data/clevrer_wds/validation/clevrer-val_videos-{000000..000098}.tar"
   batch_size: ${globals.BATCH_SIZE_PER_GPU}
   val_batch_size: ${globals.BATCH_SIZE_PER_GPU}
   val_size: 200
@@ -145,7 +145,7 @@ dataset:
     transforms:
       name: clevrer_train
       type: video
-      crop_type: short_side_resize_random
+      # crop_type: short_side_resize_random
       input_size: 196
       h_flip_prob: 0.5
   val_pipeline:
@@ -156,6 +156,6 @@ dataset:
     transforms:
       name: clevrer_val
       type: video
-      crop_type: central
+      # crop_type: central
       input_size: 196
       use_segmentations: false

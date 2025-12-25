@@ -15,12 +15,12 @@ def build(config, name: Optional[str] = "VideoPipeline", **kwargs):
     if name in ("video", "VideoPipeline"):
         tfs = transforms.build(config.transforms) if config.transforms else None
         # num_frameskip is only supported at the pipeline level (e.g. train_pipeline.num_frameskip)
-        num_frameskip = config.get("num_frameskip", None)
+        # num_frameskip = config.get("num_frameskip", None)
 
         pipeline = VideoPipeline(
             transforms=tfs,
-            num_frameskip=int(num_frameskip) if num_frameskip is not None else None,
-            **config_as_kwargs(config, to_filter=("transforms",), defaults=kwargs),
+            # num_frameskip=int(num_frameskip) if num_frameskip is not None else None,
+            **config_as_kwargs(config, to_filter=("transforms",), defaults=kwargs), # it includes num_frameskip
         )
     elif name in ("image", "ImagePipeline"):
         tfs = transforms.build(config.transforms) if config.transforms else None
