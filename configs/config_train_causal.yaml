@@ -33,7 +33,7 @@ trainer:
 
 batch_size: 64
 num_workers: 10
-train_split: 0.8
+
 seed: 42
 
 image_size: 224

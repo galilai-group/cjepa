@@ -8,7 +8,8 @@ import cv2
 import numpy as np
 from torchcodec.decoders import VideoDecoder
 
-
+ROOT_DIR="clevrer_video"
+# "/cs/data/people/hnam16/data/clevrer"
 
 def make_shards(input_dir, split, out_dir, maxcount=512):
     split_dir = os.path.join(input_dir, split)
@@ -40,7 +41,6 @@ def make_shards(input_dir, split, out_dir, maxcount=512):
     print(f"[OK] Wrote {written} samples into shards at {out_dir}")
 
 # Example:
-make_shards("/cs/data/people/hnam16/data/clevrer", "train_videos", "/cs/data/people/hnam16/data/clevrer_wds_mp4/train", maxcount=512)
-make_shards("/cs/data/people/hnam16/data/clevrer", "val_videos", "/cs/data/people/hnam16/data/clevrer_wds_mp4/validation", maxcount=512)
-# make_shards("../../../data/clevrer", "test", "../../../data/clevrer_wds/test", maxcount=64)
+make_shards(ROOT_DIR, "train", os.path.join(ROOT_DIR, "clevrer_wds_mp4/train"), maxcount=512)
+make_shards(ROOT_DIR, "val", os.path.join(ROOT_DIR, "clevrer_wds_mp4/val"), maxcount=512)
 

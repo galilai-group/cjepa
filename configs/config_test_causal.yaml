@@ -24,7 +24,7 @@ checkpoint_path: causal_world_model_ver2_epoch_30_object.ckpt
 # Model architecture must match training configuration
 image_size: 224
 patch_size: 16
-train_split: 0.8
+
 
 # Same dinowm configuration as training
 dinowm:

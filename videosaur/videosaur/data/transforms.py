@@ -24,6 +24,7 @@ DATASET_TYPES = {
     "ytvis": "video",
     "movi": "video",
     "clevrer": "video",
+    "pusht": "video",
     "dummy": "video",
     "dummyimage": "image",
 }
@@ -129,7 +130,7 @@ def build(config):
             transforms["segmentations"] = segmentation_transformation
 
     # just copy from movi for now
-    elif dataset == "clevrer":
+    elif dataset == "clevrer" or dataset == "pusht":
         if "target_size" in config:
             target_size = _to_2tuple(config.target_size)
             transforms[f"target_{transform_type}"] = tvt.Compose(

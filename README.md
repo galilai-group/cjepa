@@ -6,7 +6,7 @@ conda install anaconda::ffmpeg
 pip install seaborn webdataset swig einops
 pip install -e ./stable-pretraining
 pip install -e ./stable-worldmodel
-pip install accelerate tensorboard tensorboardX.  # for videosaur 
+pip install accelerate tensorboard tensorboardX.  
 ```
 to run ALOE for clevrer VQA, install `nerv` and s`pycocotools` as well.
 ```
@@ -15,29 +15,136 @@ pip install pycocotools
 ```
 
 # Dataset
-## download clevrer
+## Download clevrer (~24G total)
 ```sh
-mkdir clevrer_video
-cd clevrer_video
-wget http://data.csail.mit.edu/clevrer/videos/train/video_train.zip
-wget http://data.csail.mit.edu/clevrer/videos/validation/video_validation.zip
-wget http://data.csail.mit.edu/clevrer/videos/test/video_test.zip
+#!/usr/bin/env bash
+
+ROOT_DIR="/users/hnam16/scratch/clevrer_video"
+
+mkdir -p \
+  ${ROOT_DIR}/train \
+  ${ROOT_DIR}/val \
+  ${ROOT_DIR}/test
+
+echo "Downloading CLEVRER videos..."
+
+wget -nc -P ${ROOT_DIR}/train \
+  http://data.csail.mit.edu/clevrer/videos/train/video_train.zip
+
+wget -nc -P ${ROOT_DIR}/val \
+  http://data.csail.mit.edu/clevrer/videos/validation/video_validation.zip
+
+wget -nc -P ${ROOT_DIR}/test \
+  http://data.csail.mit.edu/clevrer/videos/test/video_test.zip
+
+echo "Unzipping..."
+unzip -q ${ROOT_DIR}/train/video_train.zip -d ${ROOT_DIR}/train
+unzip -q ${ROOT_DIR}/val/video_validation.zip -d ${ROOT_DIR}/val
+unzip -q ${ROOT_DIR}/test/video_test.zip -d ${ROOT_DIR}/test
+
+echo "Flattening mp4 files..."
+
+for split in train val test; do
+  find ${ROOT_DIR}/${split} -type f -name "*.mp4" -exec mv {} ${ROOT_DIR}/${split}/ \;
+  find ${ROOT_DIR}/${split} -type d ! -path ${ROOT_DIR}/${split} -exec rm -rf {} +
+done
+
+echo "Done."
 ```
-Create a folder named `videos/`, place the required videos inside it, and then run `python clevrer/clevrer.py`.
 
-# Videosaur Checkpoints
-| weight_sim | lr        | last checkpoint step | checkpoint      |
-|------------|-----------|----------------------|-----------------|
-| 0.1        | 1.00E-04  | 81k                  | [checkpoint](https://drive.google.com/file/d/1qZwWyXXTKbUMJYJ_h65QaO4_fgj_8wBL/view?usp=drive_link)     |
-| 0.3        | 1.00E-04  | 81k                  | [checkpoint](https://drive.google.com/file/d/105BOoK1GYk3R9S95Sbmkrp8tO5ZO_AKD/view?usp=drive_link)     |
-| 0.5        | 1.00E-04  | 82k                  | [checkpoint](https://drive.google.com/file/d/105BOoK1GYk3R9S95Sbmkrp8tO5ZO_AKD/view?usp=drive_link)     |
+This will give you 
+```
+ROOT_DIR/
+├── train/
+│   ├── video_00000.mp4
+│   ├── video_00001.mp4
+│   └── ...
+├── val/
+│   ├── video_10000.mp4
+│   └── ...
+└── test/
+    ├── video_15000.mp4
+    └── ...
+```
 
-* If you want to train your own VIDEOSAUR model with Clevrer, please refer to [videosaur-branch-readme-here](https://github.com/rbalestr-lab/cjepa/blob/videosaur/README.md).
-* These checkpoints are trained with `video_00000` from `video_05000`.
+## Prepare CLEVRER Stable-WM dataset
+```
+% set ROOT_DIR in the file first
+python dataset/clevrer/clevrer.py
+```
+* This will create clevrer dataset under stable-wm cache directory (by calling `swm.data.utils.get_cache_dir()`) in a desired format.
+* We will use deterministic train / val  setup - your cache directory will look like
+
+```
+.stable_worldmodel
+├── clevrer_train/
+|    ├── data-00000-of-000001.arrow
+|    ├── dataset_info.json
+|    ├── state.json
+|    └── videos
+|         └──0_pixels.mp4 ...
+└── clevrer_val/
+     ├── data-00000-of-000001.arrow
+     ├── dataset_info.json
+     ├── state.json
+     └── videos
+          └──10000_pixels.mp4 ...
+```
+
+## Prepare CLEVRER Videosaur dataset
+```
+% You don't need this if you are not running videosaur.
+% set ROOT_DIR in the file first
+python dataset/clevrer/save_clevrer_webdataset_mp4.py
+```
+This will give you 
+```
+ROOT_DIR/
+├── train/
+├── val/
+├── test/
+└── clevrre_wds_mp4
+    ├── train
+    |   └── clevrer-train-000000.tar ...
+    └── val
+        └── clevrer-val-000000.tar ...
+
+```
+
+## Download PushT
+* Download data from https://drive.google.com/drive/folders/1M7PfMRzoSujcUkqZxEfwjzGBIpRMdl88
+* Unzip and put them under `swm.data.utils.get_cache_dir()`.
+* rename folder as a desired format
+
+```
+mv pusht_expert_train_video pusht_expert_train
+mv pusht_expert_val_video pusht_expert_val
+
+```
+
+This will give you
+
+```
+.stable_worldmodel
+├── pusht_expert_train/
+|    ├── data-00000-of-000001.arrow
+|    ├── dataset_info.json
+|    ├── state.json
+|    └── videos
+|         └──0_pixels.mp4 ...
+└── pusht_expert_val/
+     ├── data-00000-of-000001.arrow
+     ├── dataset_info.json
+     ├── state.json
+     └── videos
+          └──0_pixels.mp4 ...
+```
 
 # Training and WM-checkpoints
 
 ## How to Run
+
+
 Use scripts below, or refer to the command if you are not using slurm.
 
 ```sh
@@ -52,20 +159,6 @@ sbatch script/{dataset}/causalwm.sh # run causalwm, which has causal slot maskin
 * All customed models are in `custom_models/`.
 * Actual training files are in `train/`.
 
-## Trained checkpoints
-
-| model        | Predictor lr  | epoch  | checkpoint     |
-|--------------|---------------|--------|----------------|
-| videowm      | 5.00E-04      | 30     | [checkpoint](https://drive.google.com/file/d/12YVmnTK5NipNrjnQ4ysvXWhi0SOK8AZP/view?usp=drive_link) |
-| videowm      | 5.00E-04      | 50     | [checkpoint](https://drive.google.com/file/d/1oinaGKVxFlt3OavlkYKaJR5co0r7NwhX/view?usp=drive_link) |
-| videowm_reg  | 5.00E-04      | 30     | [checkpoint](https://drive.google.com/file/d/1pASFjlbjx4wJRfRNWL-bj2pSBqrK-E8j/view?usp=drive_link) |
-| ocwm         | 5.00E-04      | 30     | [checkpoint](https://drive.google.com/file/d/1eapE0F4qGpWRwQ2QeS6QMoKna5eddgxb/view?usp=drive_link) |
-| causalwm     | 5.00E-04      | 30     | [checkpoint](https://drive.google.com/file/d/15_0egh6YSJUsS0_6eJarYb0wY4GFrIKm/view?usp=drive_link) |
-| causalwm     | 5.00E-04      | 65     | [checkpoint](https://drive.google.com/file/d/1wn82EWY0uSfVJ-8f8JNgt_8GkU6DtwVw/view?usp=drive_link) |
-
-* OCWM and Causal WMs are trained with VIDEOSAUR checkpoint with `weight_sim=0.1`
-* These checkpoints are trained with `train_split=0.8` and `seed=42`, among videos from `video_00000` from `video_10000`. (So there are some data leakage now, sorry my bad)
-
 
 # CLEVRER VQA
 
@@ -77,19 +170,3 @@ sbatch script/{dataset}/causalwm.sh # run causalwm, which has causal slot maskin
     'test': {...}
 }
 ```
-
-
-# ~~Evaluation and Visualization~~
-
-## How to run 
-```sh
-PYTHONPATH=. python test/test_videowm.py checkpoint_path=ckpt/world_model_epoch_30_object.ckpt
-PYTHONPATH=. python test/test_videowm_reg.py checkpoint_path=ckpt/world_model_reg_epoch_30_object.ckpt
-PYTHONPATH=. python test/test_ocwm.py checkpoint_path=ckpt/world_model_oc_epoch_30_object.ckpt
-PYTHONPATH=. python test/test_causalwm.py checkpoint_path=ckpt/causal_world_model_ver2_epoch_30_object.ckpt 
-```
-* Currently it calculates Rankme and Fréchet Joint Distance. Will keep update! (Last Update: Dec 17)
-
-## Visualization (Last update Dec 17)
-* Implemented to observe slot interactions.
-* Current version visualizes 3D PCA slot trajectories.

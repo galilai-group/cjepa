@@ -1,9 +1,9 @@
-experiment_group: videosaur
+experiment_group: videosaur_pusht
 experiment_name: pusht_dinov2
 
 globals:
-  NUM_SLOTS: 7
-  SLOT_DIM: 128
+  NUM_SLOTS: 4
+  SLOT_DIM: 64
   DINO_MODEL: vit_small_patch14_dinov2.lvd142m
   FEAT_DIM: 384
   NUM_PATCHES: 196
@@ -129,11 +129,11 @@ model:
 val_metrics: null
 
 dataset:
-  train_shards: "/cs/data/people/hnam16/data/pusht_wds_mp4/train/pusht-train_videos-{000000..000036}.tar"
-  val_shards: "/cs/data/people/hnam16/data/pusht_wds_mp4/validation/pusht-val-{000000}.tar"
+  train_shards: "/users/hnam16/scratch/data/pusht_wds_mp4/train/pusht-train-{000000..000036}.tar"
+  val_shards: "/users/hnam16/scratch/data/pusht_wds_mp4/validation/pusht-val-{000000..000002}.tar"
   batch_size: ${globals.BATCH_SIZE_PER_GPU}
   val_batch_size: ${globals.BATCH_SIZE_PER_GPU}
-  val_size: 100
+  val_size: 20
   num_workers: 5 # increase this if you have more CPU cores
   num_val_workers: 4
   train_pipeline:

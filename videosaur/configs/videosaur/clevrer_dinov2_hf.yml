@@ -1,5 +1,5 @@
 # CLEVRER videos: 128 frames, 480x320 resolution. DINOv2-B/14 expects 518x518 inputs.
-experiment_group: videosaur
+experiment_group: videosaur_clevrer
 experiment_name: clevrer_dinov2
 
 globals:

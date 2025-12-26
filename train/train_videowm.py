@@ -76,8 +76,9 @@ def get_data(cfg):
     # Image size must be multiple of DINO patch size (14)
     img_size = (cfg.image_size // cfg.patch_size) * DINO_PATCH_SIZE
 
-    # norm_action_transform = norm_col_transform(dataset.dataset, "action")
-    # norm_proprio_transform = norm_col_transform(dataset.dataset, "proprio")
+    if "pusht" in cfg.dataset_name"
+        norm_action_transform = norm_col_transform(dataset.dataset, "action")
+        norm_proprio_transform = norm_col_transform(dataset.dataset, "proprio")
 
     # Apply transforms to all steps
     if "clevrer" in cfg.dataset_name:
@@ -175,7 +176,7 @@ def get_world_model(cfg):
 
     num_patches = (cfg.image_size // cfg.patch_size) ** 2
 
-    if cfg.training_type == "wm":
+    if "pusht" in cfg.dataset_name:   
         embedding_dim += cfg.dinowm.proprio_embed_dim + cfg.dinowm.action_embed_dim  # Total embedding size
 
     logging.info(f"Patches: {num_patches}, Embedding dim: {embedding_dim}")
@@ -189,12 +190,12 @@ def get_world_model(cfg):
     )
 
     # Build action and proprioception encoders
-    if cfg.training_type == "video":    
+    if "clevrer" in cfg.dataset_name:    
         action_encoder = None
         proprio_encoder = None
 
         logging.info(f"[Video Only] Action encoder: None, Proprio encoder: None")
-    else :
+    elif  "pusht" in cfg.dataset_name:   
         effective_act_dim = cfg.frameskip * cfg.dinowm.action_dim
         action_encoder = swm.wm.dinowm.Embedder(in_chans=effective_act_dim, emb_dim=cfg.dinowm.action_embed_dim)
         proprio_encoder = swm.wm.dinowm.Embedder(in_chans=cfg.dinowm.proprio_dim, emb_dim=cfg.dinowm.proprio_embed_dim)
