@@ -21,8 +21,12 @@ wget http://data.csail.mit.edu/clevrer/videos/test/video_test.zip
   * Run the code below to convert video into `webdataset` format (to make it compatible to videosaur)
 
 ```
-python dataset/clevrer/save_clevrer_webdataset.py 
+python dataset/clevrer/save_clevrer_webdataset_mp4.py 
 % you should change the directory in this code
+
+% similar for pusht
+python dataset/clevrer/save_clevrer_webdataset_mp4.py 
+```
 
 Temporal subsampling (num_frameskip)
 ----------------------------------

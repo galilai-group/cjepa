@@ -63,7 +63,8 @@ def load_mp4_as_numpy_torchcodec(path):
     return frames_np
 
 def make_shards(input_dir, split, out_dir, maxcount=32):
-    split_dir = os.path.join(input_dir, split)
+    # split_dir = os.path.join(input_dir, split)
+    split_dir = input_dir
     video_files = sorted(glob(os.path.join(split_dir, "*.mp4")))
 
     os.makedirs(out_dir, exist_ok=True)
@@ -95,6 +96,6 @@ def make_shards(input_dir, split, out_dir, maxcount=32):
     print(f"[OK] Wrote {len(video_files)} samples into shards at {out_dir}")
 
 # Example:
-make_shards("/cs/data/people/hnam16/data/pusht", "train_videos", "/cs/data/people/hnam16/data/pusht_wds/train", maxcount=64)
-make_shards("/cs/data/people/hnam16/data/pusht", "val_videos", "/cs/data/people/hnam16/data/pusht_wds/validation", maxcount=64)
+make_shards("/cs/data/people/hnam16/.stable_worldmodel/pusht_expert_train_video/videos", "train", "/cs/data/people/hnam16/data/pusht_wds/train", maxcount=64)
+make_shards("//cs/data/people/hnam16/.stable_worldmodel/pusht_expert_val_video/videos", "val", "/cs/data/people/hnam16/data/pusht_wds/validation", maxcount=64)
 

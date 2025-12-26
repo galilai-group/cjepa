@@ -16,10 +16,10 @@ export PYTHONPATH=$(pwd)
 
 torchrun --nproc_per_node=6 --master-port=29502 \
     train/train_causalwm.py \
-    output_model_name="world_model_causal_4mask" \
+    output_model_name="4mask_oc05" \
     dataset_name="clevrer" \
     num_workers=10 \
     batch_size=64 \
     trainer.max_epochs=30 \
     num_masked_slots=4 \
-    model.load_weights="/cs/data/people/hnam16/.stable_worldmodel/artifacts/oc-checkpoints/oc_ckpt.ckpt"
+    model.load_weights="/cs/data/people/hnam16/.stable_worldmodel/artifacts/oc-checkpoints/oc_ckpt_05.ckpt"

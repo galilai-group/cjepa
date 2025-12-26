@@ -3,6 +3,11 @@ from functools import partial
 from typing import Any, Callable, Dict, Optional, Tuple
 
 import numpy as np
+import tempfile
+import os
+import cv2
+from torchcodec.decoders import VideoDecoder
+
 import webdataset as wds
 
 from videosaur.videosaur.data import transforms
@@ -160,6 +165,12 @@ class VideoPipeline(DataPipeline):
 
     def apply(self, dataset: wds.WebDataset) -> wds.WebDataset:
         if self.use_chunks:
+            # Ensure that video bytes are decoded to numpy arrays BEFORE any temporal
+            # subsampling or chunk splitting. This handles shards that store mp4 bytes
+            # under keys like `video.mp4` which otherwise would be bytes here.
+            if self.keys is not None:
+                dataset = dataset.map(partial(ensure_video_array, keys_to_ensure=self.keys))
+
             # Apply temporal subsampling BEFORE splitting into chunks if requested.
             if self.num_frameskip is not None and int(self.num_frameskip) > 1:
                 dataset = dataset.map(partial(temporal_subsample_keys, keys_to_subsample=self.keys, stride=int(self.num_frameskip)))
@@ -235,6 +246,84 @@ def split_to_chunks(
 def copy_dict_entries(dictionary: Dict[str, Any], copy_from_to: Dict[str, str]) -> Dict[str, Any]:
     for from_key, to_key in copy_from_to.items():
         dictionary[to_key] = dictionary[from_key]
+
+    return dictionary
+
+
+def ensure_video_array(dictionary: Dict[str, Any], keys_to_ensure: Tuple[str]) -> Dict[str, Any]:
+    """Ensure that listed keys contain numpy arrays of shape (F, ...).
+
+    If the value is raw mp4 bytes, write to a temp file and decode using
+    torchcodec (preferred) or OpenCV as a fallback. If the value is a list/tuple
+    of frames, convert to numpy array.
+    """
+    for key in keys_to_ensure:
+        if key not in dictionary:
+            continue
+        val = dictionary[key]
+
+        # If already a numpy array, nothing to do
+        if isinstance(val, np.ndarray):
+            continue
+
+        # If bytes, write to a temp mp4 and attempt to decode
+        if isinstance(val, (bytes, bytearray)):
+            fd, tmp_path = tempfile.mkstemp(suffix=".mp4")
+            try:
+                with os.fdopen(fd, "wb") as fh:
+                    fh.write(val)
+
+                frames_np = None
+                # Try torchcodec first (if available)
+                try:
+                    dec = VideoDecoder(tmp_path)
+                    frames_t = dec[:]
+                    if frames_t is not None and len(frames_t) > 0:
+                        frames_np = frames_t.permute(0, 2, 3, 1).cpu().numpy()
+                except Exception:
+                    frames_np = None
+
+                # Fallback to OpenCV
+                if frames_np is None:
+                    cap = cv2.VideoCapture(tmp_path)
+                    frames = []
+                    while True:
+                        ret, frame = cap.read()
+                        if not ret:
+                            break
+                        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        frames.append(frame)
+                    cap.release()
+                    if len(frames) > 0:
+                        frames_np = np.stack(frames, axis=0)
+
+                if frames_np is None:
+                    raise RuntimeError(f"Could not decode video bytes for key '{key}'")
+
+                # Ensure uint8
+                if np.issubdtype(frames_np.dtype, np.floating):
+                    if frames_np.max() <= 1.01:
+                        frames_np = (frames_np * 255.0).round().astype(np.uint8)
+                    else:
+                        frames_np = frames_np.round().astype(np.uint8)
+                else:
+                    frames_np = frames_np.astype(np.uint8)
+
+                dictionary[key] = frames_np
+
+            finally:
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
+
+        # If list/tuple of frames, try to convert to numpy
+        elif isinstance(val, (list, tuple)):
+            try:
+                dictionary[key] = np.stack(val, axis=0)
+            except Exception:
+                # leave as-is if stacking fails
+                pass
 
     return dictionary
 
