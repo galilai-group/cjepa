@@ -3,18 +3,17 @@
 conda create -n dino310 python=3.10 -y
 conda activate dino310
 conda install anaconda::ffmpeg
-pip install seaborn webdataset swig einops
-pip install -e ./stable-pretraining
-pip install -e ./stable-worldmodel
-pip install accelerate tensorboard tensorboardX.  
+pip install seaborn webdataset swig einops uv torchcodec
+uv pip install -e ./stable-pretraining % make sure you init submodule
+uv pip install -e ./stable-worldmodel % make sure you init submodule
+uv pip install accelerate tensorboard tensorboardX.  
 ```
 to run ALOE for clevrer VQA, install `nerv` and s`pycocotools` as well.
 ```
-git clone git@github.com:Wuziyi616/nerv.git
+git clone https://github.com/Wuziyi616/nerv.git
 cd nerv
 git checkout v0.1.0  # tested with v0.1.0 release
-pip install -e .
-pip install -e ./nerv
+uv pip install -e .
 pip install pycocotools
 ```
 
