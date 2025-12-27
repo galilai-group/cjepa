@@ -10,6 +10,10 @@ pip install accelerate tensorboard tensorboardX.
 ```
 to run ALOE for clevrer VQA, install `nerv` and s`pycocotools` as well.
 ```
+git clone git@github.com:Wuziyi616/nerv.git
+cd nerv
+git checkout v0.1.0  # tested with v0.1.0 release
+pip install -e .
 pip install -e ./nerv
 pip install pycocotools
 ```
