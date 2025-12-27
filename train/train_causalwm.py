@@ -52,7 +52,7 @@ def get_data(cfg):
                 source=key,
                 target=target,
             ),
-            spt.data.transforms.Resize(img_size, source=key, target=target),
+            spt.data.transforms.Resize((img_size, img_size), source=key, target=target),
         )    
 
     def norm_col_transform(dataset, col="pixels"):

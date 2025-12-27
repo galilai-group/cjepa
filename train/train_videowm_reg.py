@@ -49,7 +49,7 @@ def get_data(cfg):
                 source=key,
                 target=target,
             ),
-            spt.data.transforms.Resize(img_size, source=key, target=target),
+            spt.data.transforms.Resize((img_size, img_size), source=key, target=target),
         )
     def norm_col_transform(dataset, col="pixels"):
         """Normalize column to zero mean, unit variance."""
@@ -313,7 +313,7 @@ class ModelObjectCallBack(Callback):
 # ============================================================================
 # Main Entry Point
 # ============================================================================
-@hydra.main(version_base=None, config_path="../configs", config_name="config")
+@hydra.main(version_base=None, config_path="../configs", config_name="config_train")
 def run(cfg):
     """Run training of predictor"""
 
