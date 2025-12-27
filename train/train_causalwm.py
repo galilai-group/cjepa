@@ -148,31 +148,41 @@ def get_world_model(cfg):
     """Build world model: frozen videosaur encoder + masked slot predictor."""
 
     def forward(self, batch, stage):
-        """Forward: encode observations, predict next slot states, compute losses.
-        
-        Loss computation modes:
-          Loss only on:
-            * Masked slots in history frames (recovering masked content)
-            * All slots in future frames
-        """
+        """Forward: encode observations, predict next states, compute losses."""
 
-        # Encode all timesteps into slot embeddings via videosaur
-        batch = self.model.encode(
-            batch,
-            target="embed",
-            pixels_key="pixels"
-        )
-        # batch["embed"]: (B, T, S, 64) where S=num_slots, T=n_steps
+        proprio_key = "proprio" if "proprio" in batch else None
 
+        # Replace NaN values with 0 (occurs at sequence boundaries)
+        if proprio_key is not None:
+            batch[proprio_key] = torch.nan_to_num(batch[proprio_key], 0.0)
+        if "action" in batch:
+            batch["action"] = torch.nan_to_num(batch["action"], 0.0)
+
+        # Encode all timesteps into latent embeddings
+        if "clevrer" in cfg.dataset_name:
+            batch = self.model.encode(
+                batch,
+                target="embed",
+                pixels_key="pixels"
+            )
+        elif "pusht" in cfg.dataset_name:
+            batch = self.model.encode(
+                batch,
+                target="embed",
+                pixels_key="pixels",
+                proprio_key=proprio_key,
+                action_key="action",
+            )
         # Use history to predict next states
         embedding = batch["embed"][:, : cfg.dinowm.history_size, :, :]  # (B, history_size, S, 64)
         
 
         # Request mask information for selective loss
         pred_output = self.model.predict(embedding)
+        pixels_dim = batch["pixels_embed"].shape[-1]
+        
         if len(pred_output[1]) > 0:  # mask_indices available
             pred_embedding, mask_indices = pred_output
-
             target_embedding = batch["embed"][:, cfg.dinowm.history_size : cfg.dinowm.history_size + cfg.dinowm.num_preds, :, :]  # (B, num_pred, S, 64)
             
             pred_history = pred_embedding[:, :cfg.dinowm.history_size, :, :]      # (B, T, S, 64)
@@ -195,7 +205,7 @@ def get_world_model(cfg):
             target_embedding = batch["embed"][:, cfg.dinowm.history_size : cfg.dinowm.history_size + cfg.dinowm.num_preds, :, :]  # (B, num_pred, S, 64)
             loss_future = F.mse_loss(pred_future, target_embedding.detach())
             batch["loss"] = loss_future
-            # batch["loss_future"] = loss_future
+
 
         
         # Flatten predictions for RankMe: (B, T, S, D) or (B, num_pred, S, D) -> (B*T, S*D) or (B*num_pred, S*D)
@@ -366,14 +376,14 @@ def run(cfg):
             f"RankMe monitoring enabled (queue_length={cfg.get('rankme_queue_length', 2048)}, "
             f"target_shape={cfg.videosaur.NUM_SLOTS * 64})"
         )
-    strategy=DDPStrategy(find_unused_parameters=True)
+
+
     trainer = pl.Trainer(
         **cfg.trainer,
         callbacks=callbacks,
         num_sanity_val_steps=1,
         logger=wandb_logger,
         enable_checkpointing=True,
-        strategy=strategy,
     )
 
     manager = spt.Manager(
