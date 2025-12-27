@@ -16,12 +16,12 @@ export PYTHONPATH=$(pwd)
 
 torchrun --nproc_per_node=4 --master-port=29501 \
     train/train_videowm_reg.py \
-    +cache_dir: "/users/hnam16/scratch/.stable_worldmodel" \
+    cache_dir="/users/hnam16/scratch/.stable_worldmodel" \
     output_model_name="clevrer_world_model_reg" \
     dataset_name="clevrer" \
     num_workers=8 \
     batch_size=64 \
-    max_epochs=30 \
+    trainer.max_epochs=30 \
     predictor_lr=5e-4 \
     proprio_encoder_lr=5e-4 \
     action_encoder_lr=5e-4 \

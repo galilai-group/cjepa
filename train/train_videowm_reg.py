@@ -76,9 +76,6 @@ def get_data(cfg):
     # Image size must be multiple of DINO patch size (14)
     img_size = (cfg.image_size // cfg.patch_size) * DINO_PATCH_SIZE
 
-    # norm_action_transform = norm_col_transform(dataset.dataset, "action")
-    # norm_proprio_transform = norm_col_transform(dataset.dataset, "proprio")
-
     # Apply transforms to all steps
     if "clevrer" in cfg.dataset_name:
         transform = spt.data.transforms.Compose(
@@ -144,13 +141,29 @@ def get_world_model(cfg):
     def forward(self, batch, stage):
         """Forward: encode observations, predict next states, compute losses."""
 
-        # Encode all timesteps into latent embeddings
-        batch = self.model.encode(
-            batch,
-            target="embed",
-            pixels_key="pixels"
-        )
+        proprio_key = "proprio" if "proprio" in batch else None
 
+        # Replace NaN values with 0 (occurs at sequence boundaries)
+        if proprio_key is not None:
+            batch[proprio_key] = torch.nan_to_num(batch[proprio_key], 0.0)
+        if "action" in batch:
+            batch["action"] = torch.nan_to_num(batch["action"], 0.0)
+
+        # Encode all timesteps into latent embeddings
+        if "clevrer" in cfg.dataset_name:
+            batch = self.model.encode(
+                batch,
+                target="embed",
+                pixels_key="pixels"
+            )
+        elif "pusht" in cfg.dataset_name:
+            batch = self.model.encode(
+                batch,
+                target="embed",
+                pixels_key="pixels",
+                proprio_key=proprio_key,
+                action_key="action",
+            )
         # Use history to predict next states
         embedding = batch["embed"][:, : cfg.dinowm.history_size, :, :]  # (B, T-1, patches, dim)
         pred_embedding = self.model.predict(embedding)
@@ -158,10 +171,32 @@ def get_world_model(cfg):
 
         # Compute pixel latent prediction loss
         pixels_dim = batch["pixels_embed"].shape[-1]
-        batch["loss"] = F.mse_loss(pred_embedding, target_embedding.detach())
-        B, num_pred, S, D = pred_embedding.shape
-        pred_flat = pred_embedding.reshape(B*num_pred, S*D)
-        batch["predictor_embed"] = pred_flat
+        if "clevrer" in cfg.dataset_name:
+            batch["loss"] = F.mse_loss(pred_embedding, target_embedding.detach())
+            B, num_pred, S, D = pred_embedding.shape
+            pred_flat = pred_embedding.reshape(B*num_pred, S*D)
+            batch["predictor_embed"] = pred_flat
+        elif "pusht" in cfg.dataset_name:
+            pixels_loss = F.mse_loss(pred_embedding[..., :pixels_dim], target_embedding[..., :pixels_dim].detach())
+            batch["pixels_loss"] = pixels_loss
+
+            # Add proprioception loss if available
+            if proprio_key is not None:
+                proprio_dim = batch["proprio_embed"].shape[-1]
+                proprio_loss = F.mse_loss(
+                    pred_embedding[..., pixels_dim : pixels_dim + proprio_dim],
+                    target_embedding[..., pixels_dim : pixels_dim + proprio_dim].detach(),
+                )
+                batch["proprio_loss"] = proprio_loss
+
+            batch["loss"] = F.mse_loss(
+                pred_embedding[..., : pixels_dim + proprio_dim],
+                target_embedding[..., : pixels_dim + proprio_dim].detach(),
+            )
+            B, num_pred, S, D = pred_embedding[..., : pixels_dim].shape
+            pred_flat = pred_embedding[..., : pixels_dim].reshape(B*num_pred, S*D)
+            batch["predictor_embed"] = pred_flat
+            
         # Log all losses
         prefix = "train/" if self.training else "val/"
         losses_dict = {f"{prefix}{k}": v.detach() for k, v in batch.items() if "loss" in k}
@@ -175,7 +210,7 @@ def get_world_model(cfg):
 
     num_patches = (cfg.image_size // cfg.patch_size) ** 2
 
-    if cfg.training_type == "wm":
+    if "pusht" in cfg.dataset_name:   
         embedding_dim += cfg.dinowm.proprio_embed_dim + cfg.dinowm.action_embed_dim  # Total embedding size
 
     logging.info(f"Patches: {num_patches}, Embedding dim: {embedding_dim}")
@@ -189,12 +224,12 @@ def get_world_model(cfg):
     )
 
     # Build action and proprioception encoders
-    if cfg.training_type == "video":    
+    if "clevrer" in cfg.dataset_name:    
         action_encoder = None
         proprio_encoder = None
 
         logging.info(f"[Video Only] Action encoder: None, Proprio encoder: None")
-    else :
+    elif  "pusht" in cfg.dataset_name:   
         effective_act_dim = cfg.frameskip * cfg.dinowm.action_dim
         action_encoder = swm.wm.dinowm.Embedder(in_chans=effective_act_dim, emb_dim=cfg.dinowm.action_embed_dim)
         proprio_encoder = swm.wm.dinowm.Embedder(in_chans=cfg.dinowm.proprio_dim, emb_dim=cfg.dinowm.proprio_embed_dim)
@@ -309,14 +344,12 @@ def run(cfg):
             f"RankMe monitoring enabled (queue_length={cfg.get('rankme_queue_length', 2048)}, "
             f"target_shape={num_patches * 64})" # numpatches 
         )
-    strategy=DDPStrategy(find_unused_parameters=True)
     trainer = pl.Trainer(
         **cfg.trainer,
         callbacks=callbacks,
         num_sanity_val_steps=1,
         logger=wandb_logger,
         enable_checkpointing=True,
-        strategy=strategy,
     )
 
     manager = spt.Manager(
