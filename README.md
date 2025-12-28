@@ -1,4 +1,4 @@
-# Environment Setup
+# 1. Environment Setup
 ```
 conda create -n dino310 python=3.10 -y
 conda activate dino310
@@ -17,8 +17,8 @@ uv pip install -e .
 pip install pycocotools
 ```
 
-# Dataset
-## Download clevrer (~24G total)
+# 2. Dataset
+## 2.1 Download clevrer (~24G total)
 ```sh
 #!/usr/bin/env bash
 
@@ -70,7 +70,7 @@ ROOT_DIR/
     └── ...
 ```
 
-## Prepare CLEVRER Stable-WM dataset
+## 2.2 Prepare CLEVRER Stable-WM dataset
 ```
 % set ROOT_DIR in the file first
 python dataset/clevrer/clevrer.py
@@ -91,7 +91,7 @@ python dataset/clevrer/clevrer.py
 |    ├── dataset_info.json
 |    ├── state.json
 |    └── videos
-|         └──0_pixels.mp4 ...
+|         └──10000_pixels.mp4 ...
 └── clevrer_test/
      ├── data-00000-of-000001.arrow
      ├── dataset_info.json
@@ -100,7 +100,7 @@ python dataset/clevrer/clevrer.py
           └──15000_pixels.mp4 ...
 ```
 
-## Prepare CLEVRER Videosaur dataset
+## 2.3 Prepare CLEVRER Videosaur dataset
 ```
 % You don't need this if you are not running videosaur.
 % set ROOT_DIR in the file first
@@ -120,7 +120,7 @@ ROOT_DIR/
 
 ```
 
-## Download PushT
+## 2.4 Download PushT
 * Download data from https://drive.google.com/drive/folders/1M7PfMRzoSujcUkqZxEfwjzGBIpRMdl88
 * Unzip and put them under `swm.data.utils.get_cache_dir()`.
 * rename folder as a desired format
@@ -149,9 +149,9 @@ This will give you
           └──0_pixels.mp4 ...
 ```
 
-# Training and WM-checkpoints
+# 3. Training and WM-checkpoints
 
-## How to Run
+## 3.1 How to Run
 
 
 Use scripts below, or refer to the command if you are not using slurm.
@@ -168,15 +168,12 @@ sbatch script/{dataset}/run_ocwm.sh # run object centric world model, need VIDEO
 * Actual training files are in `train/`.
 
 
-# CLEVRER VQA
+# 4. CLEVRER VQA
 
-## Prepare data for ALOE
- * Download checkpoints from https://drive.google.com/drive/folders/1hhhoAf7n8C7cOgG9Vy-bgPX9ZrTd_iD0?usp=drive_link
- * Extract slot representation by 
-  ```sh
-  sbatch scripts/run_extractnsh
-  ```
-  or
+## 4.1 Prepare data for ALOE
+ * Download 3 checkpoints from https://drive.google.com/drive/folders/1hhhoAf7n8C7cOgG9Vy-bgPX9ZrTd_iD0?usp=drive_link
+ * Extract slot representation from each checkpoint by 
+
   ```sh
   % PATH-TO-DATA should have clevrer_train clever_val clevrer_test with /videos under them respectively.
 
@@ -205,7 +202,7 @@ sbatch script/{dataset}/run_ocwm.sh # run object centric world model, need VIDEO
   ```
 
 
-  ## Run ALOE
+  ## 4.2 Run ALOE
   * Before running the code, replace `nerv/nerv/utils/misc.py` with `custom_codes/misc.py`. This is because the original code is based on `pytorch-lightning==0.8.*` while we are using `pytorch-lightning==2.6.*`.
   * You should change params manually in `sloformer/clevrer_vqa/configs/aloe_clevrer_params.py` or `sloformer/clevrer_vqa/configs/aloe_clevrer_params-rollout.py`. For example, 
     * `gpu` (it should exactly match the number of the visible devices)
@@ -219,6 +216,6 @@ sbatch script/{dataset}/run_ocwm.sh # run object centric world model, need VIDEO
   sbatch scripts/run_aloe.sh
   ```
 
-  ### Run with
+
   
   
