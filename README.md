@@ -6,7 +6,7 @@ conda install anaconda::ffmpeg
 pip install seaborn webdataset swig einops uv torchcodec
 uv pip install -e ./stable-pretraining % make sure you init submodule
 uv pip install -e ./stable-worldmodel % make sure you init submodule
-uv pip install accelerate tensorboard tensorboardX.  
+uv pip install accelerate tensorboard tensorboardX  
 ```
 to run ALOE for clevrer VQA, install `nerv` and s`pycocotools` as well.
 ```
@@ -86,12 +86,18 @@ python dataset/clevrer/clevrer.py
 |    ├── state.json
 |    └── videos
 |         └──0_pixels.mp4 ...
-└── clevrer_val/
+├── clevrer_val/
+|    ├── data-00000-of-000001.arrow
+|    ├── dataset_info.json
+|    ├── state.json
+|    └── videos
+|         └──0_pixels.mp4 ...
+└── clevrer_test/
      ├── data-00000-of-000001.arrow
      ├── dataset_info.json
      ├── state.json
      └── videos
-          └──10000_pixels.mp4 ...
+          └──15000_pixels.mp4 ...
 ```
 
 ## Prepare CLEVRER Videosaur dataset
@@ -164,11 +170,55 @@ sbatch script/{dataset}/run_ocwm.sh # run object centric world model, need VIDEO
 
 # CLEVRER VQA
 
-```
-# clevrer_slots.pkl :
-{
-    'train': {'video_0001': slots, 'video_0002': slots, ...},  # [128, 7, 64] each
-    'val': {...},
-    'test': {...}
-}
-```
+## Prepare data for ALOE
+ * Download checkpoints from https://drive.google.com/drive/folders/1hhhoAf7n8C7cOgG9Vy-bgPX9ZrTd_iD0?usp=drive_link
+ * Extract slot representation by 
+  ```sh
+  sbatch scripts/run_extractnsh
+  ```
+  or
+  ```sh
+  % PATH-TO-DATA should have clevrer_train clever_val clevrer_test with /videos under them respectively.
+
+  PYTHONPATH=. python slotformer/base_slots/extract_videosaur.py \
+    --weight=PATH-TO-CKPT-FILE \
+    --data_root=PATH-TO-DATA   \ % swm.data.utils.get_cache_dir() or equivalent
+    --save_path=DIR-TO-SAVE-PIL  % should contain "clevrer_slots"
+  ```
+  * Extracted pkl will look like:
+  ```
+  # clevrer_slots_{configuration}.pkl :
+  {
+      'train': {'0_pixels.mp4': slots, '1_pixels.mp4': slots, ...},  # [128, 7, 128] each
+      'val': {...},
+      'test': {...}
+  }
+  ```
+
+  * Download questions
+  ```
+  mkdir -p dataset/clevrer/questions
+  cd dataset/clevrer/questions
+  wget http://data.csail.mit.edu/clevrer/questions/train.json
+  wget http://data.csail.mit.edu/clevrer/questions/validation.json
+  wget http://data.csail.mit.edu/clevrer/questions/test.json
+  ```
+
+
+  ## Run ALOE
+  * Before running the code, replace `nerv/nerv/utils/misc.py` with `custom_codes/misc.py`. This is because the original code is based on `pytorch-lightning==0.8.*` while we are using `pytorch-lightning==2.6.*`.
+  * You should change params manually in `sloformer/clevrer_vqa/configs/aloe_clevrer_params.py` or `sloformer/clevrer_vqa/configs/aloe_clevrer_params-rollout.py`. For example, 
+    * `gpu` (it should exactly match the number of the visible devices)
+    * `slots_root`
+    * `lr`
+  * Default setting with 3 gpus  - 30G VRAM per gpu, 11 hr in total
+
+  ### Aloe without predictor (observable 128 frames)
+
+  ```
+  sbatch scripts/run_aloe.sh
+  ```
+
+  ### Run with
+  
+  

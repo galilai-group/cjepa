@@ -28,20 +28,4 @@ torchrun --nproc_per_node=4 --master-port=29503 \
     dinowm.history_size=3 \
     dinowm.num_preds=1 \
     frameskip=5 \
-    train.accelerator="cpu" 
 
-# debug
-# PYTHONPATH=. python train/train_videowm.py \
-#     +cache_dir="/users/hnam16/scratch/.stable_worldmodel" \
-#     output_model_name="pusht_expert_world_model" \
-#     dataset_name="pusht_expert" \
-#     num_workers=8 \
-#     batch_size=64 \
-#     trainer.max_epochs=10 \
-#     predictor_lr=5e-4 \
-#     proprio_encoder_lr=5e-4 \
-#     action_encoder_lr=5e-4 \
-#     dinowm.history_size=3 \
-#     dinowm.num_preds=1 \
-#     frameskip=5 \
-#     trainer.accelerator="cpu"

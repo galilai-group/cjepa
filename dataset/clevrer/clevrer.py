@@ -6,13 +6,13 @@ from torchcodec.decoders import VideoDecoder
 
 import stable_worldmodel as swm
 
-ROOT_DIR="/users/hnam16/scratch/clevrer_video"
+ROOT_DIR="/cs/data/people/hnam16/data/clevrer"
 DATASET='clevrer'
 
 def save_swm_dataset(dir, split):
     # expect path towards a single directory containing all .mp4 video files of clevrer
     video_dir = Path(dir) / split
-    dataset_dir = swm.data.utils.get_cache_dir() / str(DATASET +f'_{split}')
+    dataset_dir = Path(ROOT_DIR) / str(DATASET +f'_{split}')
 
 
     records = {"episode_idx": [], "step_idx": [], "pixels": [], "episode_len": []}
@@ -21,11 +21,14 @@ def save_swm_dataset(dir, split):
     # make videos dataset
     (dataset_dir / "videos").mkdir(exist_ok=True)
 
-    for ep_idx, video in enumerate(video_dir.iterdir()):
+    for video in video_dir.iterdir():
         if video.suffix != ".mp4":
             continue
 
         print(f"Processing video: {video.name}")
+
+
+        ep_idx = int(video.stem.split("_")[1])
 
         video_name = f"videos/{ep_idx}_pixels.mp4"
         decoder = VideoDecoder(video.as_posix())
@@ -55,3 +58,4 @@ def save_swm_dataset(dir, split):
 
 save_swm_dataset(ROOT_DIR, "train")
 save_swm_dataset(ROOT_DIR, "val")
+# save_swm_dataset(ROOT_DIR, "test")

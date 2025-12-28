@@ -7,7 +7,7 @@ class SlotFormerParams(BaseParams):
     project = 'SlotFormer'
 
     # training settings
-    gpus = 2
+    gpus = 3
     max_epochs = 400  # 240k steps
     eval_interval = 20  # evaluate every 20 epochs
     save_epoch_end = True  # save ckp at the end of every epoch
@@ -21,8 +21,8 @@ class SlotFormerParams(BaseParams):
 
     # data settings
     dataset = 'clevrer_slots'
-    data_root = './data/CLEVRER'
-    slots_root = './data/CLEVRER/clevrer_slots.pkl'
+    data_root = 'dataset/clevrer'
+    slots_root = '/cs/data/people/hnam16/data/fixed_clevrer_slots_step=100000_weight03_lr1e-4_clevrer.pkl'
     # put absolute path here
     cur_dir = os.path.dirname(os.path.realpath(__file__))
     vocab_file = os.path.join(cur_dir, '../datasets/cache/CLEVRER_vocab.json')
@@ -34,7 +34,7 @@ class SlotFormerParams(BaseParams):
     shuffle_obj = False  # SAVi has temporal consistency
     train_batch_size = 256 // gpus
     val_batch_size = train_batch_size * 2
-    num_workers = 8
+    num_workers = 4
 
     # model configs
     model = 'CLEVRERAloe'

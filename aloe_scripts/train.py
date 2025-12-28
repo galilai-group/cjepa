@@ -12,7 +12,6 @@ from omegaconf import OmegaConf
 import torch
 import hydra
 from torch.utils.data import DataLoader
-from visualization.model import load_causal_model_from_checkpoint
 from custom_models.dinowm_causal import CausalWM
 from custom_models.cjepa_predictor import MaskedSlotPredictor
 from videosaur.videosaur import  models
@@ -47,17 +46,21 @@ def main(params):
     # create checkpoint dir
     exp_name = os.path.basename(args.params)
     ckp_path = os.path.join('./checkpoint/', exp_name, 'models')
+
+    print(f'INFO: local rank is {args.local_rank}, use_ddp={args.ddp}')
+
+
     if args.local_rank == 0:
-        mkdir_or_exist(os.path.dirname(ckp_path))
+        os.makedirs(ckp_path, exist_ok=True)
 
         # on clusters, quota under user dir is usually limited
         # soft link to save the weights in temp space for checkpointing
         # e.g. on our cluster, the temp dir is /checkpoint/$USR/$SLURM_JOB_ID/
         # TODO: modify this if you are not running on clusters
         SLURM_JOB_ID = os.environ.get('SLURM_JOB_ID')
-        if SLURM_JOB_ID and not os.path.exists(ckp_path):
-            os.system(r'ln -s /checkpoint/{}/{}/ {}'.format(
-                pwd.getpwuid(os.getuid())[0], SLURM_JOB_ID, ckp_path))
+        # if SLURM_JOB_ID and not os.path.exists(ckp_path):
+        #     os.system(r'ln -s /checkpoint/{}/{}/ {}'.format(
+        #         pwd.getpwuid(os.getuid())[0], SLURM_JOB_ID, ckp_path))
 
         # it's not good to hard-code the wandb id
         # but on preemption clusters, we want the job to resume the same wandb
@@ -105,6 +108,8 @@ if __name__ == "__main__":
     # import `build_dataset/model/method` function according to `args.task`
     print(f'INFO: training model in {args.task} task!')
     task = importlib.import_module(f'slotformer.{args.task}')
+    if args.ddp:
+        args.local_rank = int(os.environ.get("LOCAL_RANK", "0"))
     build_dataset = task.build_dataset
     build_model = task.build_model
     build_method = task.build_method

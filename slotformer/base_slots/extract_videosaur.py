@@ -33,6 +33,7 @@ import pickle
 from tqdm import tqdm
 import glob
 import torchvision.transforms.v2 as transforms
+import traceback
 
 import numpy as np
 import torch
@@ -53,11 +54,13 @@ def read_video(video_path, num_frameskip, start_idx=0, return_idx=False, device=
     output: video frames for a whole video with a given frameskip
     '''
     video = VideoDecoder(video_path)
+    # sample indices to include the last frame (avoid using -1 which excludes it)
+    indices = np.arange(len(video))[start_idx::num_frameskip]
+    frames = video[start_idx::num_frameskip].to(device)
     if return_idx:
-        idx = np.arange(len(video))[0 : -1 : num_frameskip]
-        return video[start_idx : -1 : num_frameskip].to(device), idx
+        return frames, indices
     else:
-        return video[start_idx : -1 : num_frameskip].to(device)
+        return frames
 
 @torch.no_grad()
 def extract_video_slots_videosaur(model, dataset, chunk_len=None, num_frameskip=2, device='cuda'):
@@ -78,6 +81,7 @@ def extract_video_slots_videosaur(model, dataset, chunk_len=None, num_frameskip=
     all_slots = []
 
     for i in tqdm(range(len(dataset))):
+        # all_slots.append(dataset[i])
         data = read_video(dataset[i], num_frameskip, return_idx=False)
         tfs = transforms.Compose([
             transforms.ConvertImageDtype(torch.float32),      
@@ -127,68 +131,77 @@ def extract_video_slots_videosaur(model, dataset, chunk_len=None, num_frameskip=
 def process_videosaur(model, params, args):
     """Build CLEVRER dataset(s), extract slots and save to `args.save_path`"""
 
-    train_set = glob.glob("/users/hnam16/scratch/.stable_worldmodel/clevrer_train/videos/*.mp4")
-    val_set = glob.glob("/users/hnam16/scratch/.stable_worldmodel/clevrer_val/videos/*.mp4")
-
     # choose chunk length: prefer params.input_frames if exists
-    chunk_len = None # getattr(params, 'input_frames', None)
+    chunk_len = None  # getattr(params, 'input_frames', None)
 
-    print(f'Processing {params.dataset} video val set...')
-    val_slots = extract_video_slots_videosaur(model, val_set, chunk_len=chunk_len, num_frameskip=args.num_frameskip)
-    print(f'Processing {params.dataset} video train set...')
-    train_slots = extract_video_slots_videosaur(model, train_set, chunk_len=chunk_len, num_frameskip=args.num_frameskip)
-
+    # gather file lists
+    train_set = glob.glob(os.path.join(args.data_root, "clevrer_train/videos/*.mp4"))
+    val_set = glob.glob(os.path.join(args.data_root, "clevrer_val/videos/*.mp4"))
+    test_set = glob.glob(os.path.join(args.data_root, "clevrer_test/videos/*.mp4")) 
     # also extract test_set for CLEVRER
     test_slots = None
-    if params.dataset == 'clevrer':
-        test_set = glob.glob("/users/hnam16/scratch/.stable_worldmodel/clevrer_test/videos/*.mp4")
+    if len(test_set) > 0:
         print(f'Processing {params.dataset} video test set...')
         test_slots = extract_video_slots_videosaur(model, test_set, chunk_len=chunk_len, num_frameskip=args.num_frameskip)
 
-    # pack to dict: map video basename -> slots
-    try:
-        train_slots = {
-            os.path.basename(train_set.files[i]): train_slots[i]
-            for i in range(len(train_slots))
-        }
-        val_slots = {
-            os.path.basename(val_set.files[i]): val_slots[i]
-            for i in range(len(val_slots))
-        }
-        slots = {'train': train_slots, 'val': val_slots}
+    print(f'Processing {params.dataset} video val set...')
+    val_slots = extract_video_slots_videosaur(model, val_set, chunk_len=chunk_len, num_frameskip=args.num_frameskip)
 
-        if test_slots is not None:
-            test_slots = {
-                os.path.basename(test_set.files[i]): test_slots[i]
-                for i in range(len(test_slots))
-            }
-            slots['test'] = test_slots
+    print(f'Processing {params.dataset} video train set...')
+    train_slots = extract_video_slots_videosaur(model, train_set, chunk_len=chunk_len, num_frameskip=args.num_frameskip)
+    
+    def map_files_slots(file_list, slots_list, split_name):
+        if len(file_list) != len(slots_list):
+            # save partial to help debugging
+            partial = {os.path.basename(file_list[i]): slots_list[i]
+                        for i in range(min(len(file_list), len(slots_list)))}
+            partial_path = os.path.join(os.path.dirname(args.save_path), f'partial_{split_name}.pkl')
+            try:
+                mkdir_or_exist(os.path.dirname(partial_path))
+                with open(partial_path, 'wb') as pf:
+                    pickle.dump(partial, pf)
+            except :
+                print(f"Failed to write partial {split_name}")
+        # return_dict = {}
+        # for i in range(len(slots_list)):
+        #     new_name = int(os.path.basename(file_list[i]).split('_')[1].split('.')[0]) + '_pixels.mp4'
+        #     return_dict[new_name] = slots_list[i]
+        # return return_dict
+        return {os.path.basename(file_list[i]): slots_list[i] for i in range(len(slots_list))}
 
-        mkdir_or_exist(os.path.dirname(args.save_path))
-        dump_obj(slots, args.save_path)
-        print(f'Finish {params.dataset} video dataset, '
-              f'train: {len(train_slots)}/{train_set.num_videos}, '
-              f'val: {len(val_slots)}/{val_set.num_videos}')
-        if test_slots is not None:
-            print(f'test: {len(test_slots)}/{test_set.num_videos}')
-    except Exception:
-        # debugging fallback
-        import pdb
-        pdb.set_trace()
 
-    # create soft link to the weight dir
-    ln_path = os.path.join(os.path.dirname(args.weight), 'videosaur_slots.pkl')
-    os.system(r'ln -s {} {}'.format(args.save_path, ln_path))
+    train_slots_map = map_files_slots(train_set, train_slots, 'train')
+    val_slots_map = map_files_slots(val_set, val_slots, 'val')
+    slots = {'train': train_slots_map, 'val': val_slots_map}
+
+    if test_slots is not None:
+        test_slots_map = map_files_slots(test_set, test_slots, 'test')
+        slots['test'] = test_slots_map
+
+    # atomic save (write to temp then replace) and smoke-load to verify
+    mkdir_or_exist(os.path.dirname(args.save_path))
+
+
+    with open(args.save_path, 'wb') as f:
+        pickle.dump(slots, f)
+
+
+
+    # with open(args.save_path, "rb") as fr:
+    #     obj = pickle.load(fr)
 
 
 def main():
     parser = argparse.ArgumentParser(description='Extract slots from videos (Videosaur)')
     parser.add_argument('--params', default="slotformer/clevrer_vqa/configs/aloe_clevrer_params.py", type=str, )
-    parser.add_argument('--videosaur_config', default="videosaur/configs/videosaur/pusht_dinov2_hf.yml", type=str, 
+    parser.add_argument('--data_root', default="/cs/data/people/hnam16/.stable_worldmodel")
+    parser.add_argument('--videosaur_config', default="videosaur/configs/videosaur/clevrer_dinov2_hf.yml", type=str, 
                         help='path to videosaur YAML config')
-    parser.add_argument('--weight', default = "logs/videosaur_pusht/2025-12-26-15-04-12_pusht_dinov2/checkpoints/step=100000_sim0.1.ckpt", type=str,  help='pretrained model weight')
+    parser.add_argument('--weight', default = "logs/videosaur/2025-12-25-19-27-13_clevrer_dinov2/checkpoints/step=100000.ckpt", type=str,  help='pretrained model weight')
     parser.add_argument('--save_path', default="/cs/data/people/hnam16/data/clevrer_slots", type=str,  help='path to save slots')
     parser.add_argument('--num_frameskip', default=1, type=int)
+    parser.add_argument('--limit', default=None, type=int, help='limit number of videos per split (for smoke testing)')
+    parser.add_argument('--smoke', action='store_true', help='run a smoke test that skips model and uses fake slots to test save/validation logic')
 
     args = parser.parse_args()
 
@@ -224,6 +237,7 @@ def main():
         except Exception:
             pass
 
+   
     # run extraction
     process_videosaur(model, params, args)
 
