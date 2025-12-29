@@ -45,7 +45,8 @@ def main(params):
 
     # create checkpoint dir
     exp_name = os.path.basename(args.params)
-    ckp_path = os.path.join('./checkpoint/', exp_name, 'models')
+    info = params.slot_root.split('/')[-1].split('.')[0]
+    ckp_path = os.path.join('./checkpoint', exp_name, info)
 
     print(f'INFO: local rank is {args.local_rank}, use_ddp={args.ddp}')
 
