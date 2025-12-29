@@ -106,7 +106,16 @@ def run(cfg: DictConfig):
 
     world.set_policy(policy)
 
-    dataset = swm.data.FrameDataset(cfg.eval.dataset_name)
+    if cfg.eval.data_format == "frame":
+        dataset = swm.data.FrameDataset(
+            cfg.eval.dataset_name
+        )
+    elif cfg.eval.data_format == "video":
+        dataset = swm.data.VideoDataset(
+            cfg.eval.dataset_name
+        )
+    else:
+        raise NotImplementedError(f"Data format '{cfg.eval.data_format}' not supported.")
 
     start_time = time.time()
     metrics = world.evaluate_from_dataset(
