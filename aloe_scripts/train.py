@@ -18,6 +18,8 @@ from videosaur.videosaur import  models
 import stable_pretraining as spt
 import stable_worldmodel as swm
 from nerv.utils import mkdir_or_exist
+from datetime import datetime
+
 from nerv.training import BaseDataModule
 
 DINO_PATCH_SIZE = 14  # DINO encoder uses 14x14 patches
@@ -44,9 +46,10 @@ def main(params):
     model = build_model(params)
 
     # create checkpoint dir
-    exp_name = os.path.basename(args.params)
-    info = params.slot_root.split('/')[-1].split('.')[0]
-    ckp_path = os.path.join('./checkpoint', exp_name, info)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    exp_name = os.path.basename(args.params) + '_' + ts
+    info = params.slots_root.split('/')[-1].split('.')[0]
+    ckp_path = os.path.join('/cs/data/people/hnam16/aloe_checkpoint', exp_name, info)
 
     print(f'INFO: local rank is {args.local_rank}, use_ddp={args.ddp}')
 

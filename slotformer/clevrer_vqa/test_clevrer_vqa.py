@@ -86,14 +86,15 @@ def test(model, test_loader):
                 })
             else:
                 q_list[flag]['choices'] += choice_lst
-    save_path = os.path.join(os.path.dirname(args.weight), 'CLEVRER.json')
+    name = args.weight.split('/')[-1].split('.')[0]
+    save_path =  f'./CLEVRER_{name}.json'
     dump_obj(results, save_path)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Aloe CLEVRER VQA')
-    parser.add_argument('--params', type=str, required=True)
-    parser.add_argument('--weight', type=str, required=True)
+    parser.add_argument('--params', type=str,  default='slotformer/clevrer_vqa/configs/aloe_clevrer_param_for_test.py')
+    parser.add_argument('--weight', type=str, default='/cs/data/people/hnam16/aloe_checkpoint/aloe_clevrer_params/models/epoch/model_400_salr5e-4_w01_aloelr_1e-3.pth', help='load weight')
     args = parser.parse_args()
 
     if args.params.endswith('.py'):
