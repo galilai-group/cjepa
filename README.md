@@ -160,7 +160,11 @@ Use scripts below, or refer to the command if you are not using slurm.
 sbatch script/{dataset}/run_videowm.sh # run DINOwm with mp4
 sbatch script/{dataset}/run_videowm_reg.sh # run DINOwm, but with dinov2_with_register checkpoint
 sbatch script/{dataset}/run_ocwm.sh # run object centric world model, need VIDEOSAUR checkpoint downloaded from above.
+
+# make sure you load the correct checkpoint while running below!!
+sbatch script/{dataset}/run_ocwm.sh # run object centric world model, need VIDEOSAUR checkpoint downloaded from above.
 sbatch script/{dataset}/run_causalwm.sh # run causalwm, which has causal slot masking. style predictor.
+sbatch script/pusht/run_causalwm_AP_node.sh # only for pusht. When training cjepa predictor, it considers Action and Proprioception as causal nodes as well.
 ```
 
 * All config files are in `configs/`.
