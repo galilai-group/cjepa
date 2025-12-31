@@ -359,7 +359,7 @@ def load_model_from_checkpoint(cfg):
     embedding_dim = cfg.videosaur.SLOT_DIM 
     num_patches = cfg.videosaur.NUM_SLOTS
 
-    if cfg.training_type == "wm":
+    if "pusht" in cfg.dataset_name:
         embedding_dim += cfg.dinowm.proprio_embed_dim + cfg.dinowm.action_embed_dim  # Total embedding size
     logging.info(f"Patches: {num_patches}, Embedding dim: {embedding_dim}")
     
@@ -372,16 +372,18 @@ def load_model_from_checkpoint(cfg):
     )
 
     # Build action and proprioception encoders
-    if cfg.training_type == "video":    
+    if "clevrer" in cfg.dataset_name:    
         action_encoder = None
         proprio_encoder = None
+
         logging.info(f"[Video Only] Action encoder: None, Proprio encoder: None")
-    else :
+    elif "pusht" in cfg.dataset_name:
         effective_act_dim = cfg.frameskip * cfg.dinowm.action_dim
         action_encoder = swm.wm.dinowm.Embedder(in_chans=effective_act_dim, emb_dim=cfg.dinowm.action_embed_dim)
         proprio_encoder = swm.wm.dinowm.Embedder(in_chans=cfg.dinowm.proprio_dim, emb_dim=cfg.dinowm.proprio_embed_dim)
+
         logging.info(f"Action dim: {effective_act_dim}, Proprio dim: {cfg.dinowm.proprio_dim}")
-    
+
     world_model = OCWM(
         encoder=spt.backbone.EvalOnly(encoder),
         slot_attention=spt.backbone.EvalOnly(slot_attention),

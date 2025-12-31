@@ -14,25 +14,25 @@ echo "Node list: $SLURM_NODELIST"
 
 export PYTHONPATH=$(pwd)
 # becareful if you have special characters in the path like '=': Need escape it with '\'
-export CKPT_PATH="/cs/data/people/hnam16/.stable_worldmodel/artifacts/oc-checkpoints/step\=100000_weight05_lr1e-4_clevrer.ckpt"
+export CKPT_PATH="/cs/data/people/hnam16/.stable_worldmodel/artifacts/oc-checkpoints/step\=100000_weight05_lr5e-4_pusht.ckpt"
 
 torchrun --nproc_per_node=6 --master-port=29502 \
     train/train_causalwm.py \
     cache_dir="/cs/data/people/hnam16/.stable_worldmodel" \
-    output_model_name="clevrer_causal_wm" \
-    dataset_name="clevrer" \
+    output_model_name="pusht_causal_wm" \
+    dataset_name="pusht_expert" \
     num_workers=4 \
-    batch_size=32 \
-    trainer.max_epochs=30 \
-    num_masked_slots=4 \
+    batch_size=128 \
+    trainer.max_epochs=10 \
+    num_masked_slots=2 \
     model.load_weights=${CKPT_PATH} \
     predictor_lr=5e-4 \
     proprio_encoder_lr=5e-4 \
     action_encoder_lr=5e-4 \
-    dinowm.history_size=6 \
-    dinowm.num_preds=10 \
-    frameskip=2 \
-    videosaur.NUM_SLOTS=7 \
-    videosaur.SLOT_DIM=128 \
-    predictor.heads=16
+    dinowm.history_size=3 \
+    dinowm.num_preds=1 \
+    frameskip=5 \
+    videosaur.NUM_SLOTS=4 \
+    videosaur.SLOT_DIM=64 \
+    predictor.heads=12
 

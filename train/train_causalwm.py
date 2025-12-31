@@ -210,19 +210,40 @@ def get_world_model(cfg):
             # Only compute loss on masked slots
             gt_history = embedding[:, :, :, :]  # Ground truth history (unmasked)
             loss_masked_history = F.mse_loss(
-                pred_history[:, :, mask_indices, :],
-                gt_history[:, :, mask_indices, :].detach()
+                pred_history[:, :, mask_indices, :pixels_dim],
+                gt_history[:, :, mask_indices, :pixels_dim].detach()
             )
-            loss_future = F.mse_loss(pred_future, target_embedding.detach())
-            batch["loss"] = loss_masked_history + loss_future
+            loss_future = F.mse_loss(pred_future[..., :pixels_dim], target_embedding[..., :pixels_dim].detach())
+
+                    # Add proprioception loss if available
+            if proprio_key is not None:
+                proprio_dim = batch["proprio_embed"].shape[-1]
+                proprio_loss = F.mse_loss(
+                    pred_future[..., pixels_dim : pixels_dim + proprio_dim],
+                    target_embedding[..., pixels_dim : pixels_dim + proprio_dim].detach(),
+                )
+                batch["proprio_loss"] = proprio_loss
+                batch["loss"] = loss_masked_history + loss_future + proprio_loss
+            else:
+                batch["loss"] = loss_masked_history + loss_future
             batch["loss_masked_history"] = loss_masked_history
             batch["loss_future"] = loss_future
         else :
             pred_embedding = pred_output[0]
             pred_future = pred_embedding[:, cfg.dinowm.history_size : cfg.dinowm.history_size + cfg.dinowm.num_preds, :, :]       # (B, num_pred, S, 64)
             target_embedding = batch["embed"][:, cfg.dinowm.history_size : cfg.dinowm.history_size + cfg.dinowm.num_preds, :, :]  # (B, num_pred, S, 64)
-            loss_future = F.mse_loss(pred_future, target_embedding.detach())
-            batch["loss"] = loss_future
+            loss_future = F.mse_loss(pred_future[..., :pixels_dim], target_embedding[..., :pixels_dim].detach())
+            if proprio_key is not None:
+                proprio_dim = batch["proprio_embed"].shape[-1]
+                proprio_loss = F.mse_loss(
+                    pred_future[..., pixels_dim : pixels_dim + proprio_dim],
+                    target_embedding[..., pixels_dim : pixels_dim + proprio_dim].detach(),
+                )
+                batch["proprio_loss"] = proprio_loss
+                batch["loss"] = loss_future + proprio_loss
+            else:
+                batch["loss"] = loss_future 
+            
 
 
         
@@ -253,7 +274,7 @@ def get_world_model(cfg):
     # num_patches = (cfg.image_size // cfg.patch_size) ** 2
     num_patches = cfg.videosaur.NUM_SLOTS
 
-    if cfg.training_type == "wm":
+    if "pusht" in cfg.dataset_name:
         embedding_dim += cfg.dinowm.proprio_embed_dim + cfg.dinowm.action_embed_dim  # Total embedding size
 
     logging.info(f"Patches: {num_patches}, Embedding dim: {embedding_dim}")
@@ -273,12 +294,12 @@ def get_world_model(cfg):
         dropout=cfg.predictor.get("dropout", 0.1),
     )
     # Build action and proprioception encoders
-    if cfg.training_type == "video":    
+    if "clevrer" in cfg.dataset_name:    
         action_encoder = None
         proprio_encoder = None
 
         logging.info(f"[Video Only] Action encoder: None, Proprio encoder: None")
-    else :
+    elif "pusht" in cfg.dataset_name:
         effective_act_dim = cfg.frameskip * cfg.dinowm.action_dim
         action_encoder = swm.wm.dinowm.Embedder(in_chans=effective_act_dim, emb_dim=cfg.dinowm.action_embed_dim)
         proprio_encoder = swm.wm.dinowm.Embedder(in_chans=cfg.dinowm.proprio_dim, emb_dim=cfg.dinowm.proprio_embed_dim)
@@ -382,17 +403,21 @@ def run(cfg):
     # Setup RankMe callback for monitoring predictor embedding quality
     callbacks = [dump_object_callback]
     if cfg.get("monitor_rankme", False):
+        if "clevrer" in cfg.dataset_name:
+            target_shape = cfg.videosaur.NUM_SLOTS * cfg.videosaur.SLOT_DIM  # S * D flattened
+        elif "pusht" in cfg.dataset_name:
+            target_shape = cfg.videosaur.NUM_SLOTS * (cfg.videosaur.SLOT_DIM + cfg.dinowm.action_embed_dim + cfg.dinowm.proprio_embed_dim)  # S * D flattened
         # RankMe uses a queue to track embeddings and compute effective rank
         rankme_callback = spt.callbacks.RankMe(
             name="rankme/predictor",
             target="predictor_embed",
             queue_length=cfg.get("rankme_queue_length", 2048),
-            target_shape=cfg.videosaur.NUM_SLOTS * cfg.videosaur.SLOT_DIM,  # S * D flattened
+            target_shape=target_shape,  # S * D flattened
         )
         callbacks.append(rankme_callback)
         logging.info(
             f"RankMe monitoring enabled (queue_length={cfg.get('rankme_queue_length', 2048)}, "
-            f"target_shape={cfg.videosaur.NUM_SLOTS * cfg.videosaur.SLOT_DIM})"
+            f"target_shape={target_shape})"
         )
 
 

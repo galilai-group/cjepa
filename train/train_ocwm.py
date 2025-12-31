@@ -235,7 +235,7 @@ def get_world_model(cfg):
     # num_patches = (cfg.image_size // cfg.patch_size) ** 2
     num_patches = cfg.videosaur.NUM_SLOTS
 
-    if cfg.training_type == "wm":
+    if "pusht" in cfg.dataset_name:
         embedding_dim += cfg.dinowm.proprio_embed_dim + cfg.dinowm.action_embed_dim  # Total embedding size
 
     logging.info(f"Patches: {num_patches}, Embedding dim: {embedding_dim}")
