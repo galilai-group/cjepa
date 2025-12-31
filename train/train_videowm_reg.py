@@ -17,6 +17,7 @@ from torch.utils.data import DataLoader
 from transformers import AutoModel
 import wandb
 from custom_models.dinowm_reg import DINOWM_REG
+from custom_models.custom_codes.custom_dataset import ClevrerVideoDataset
 
 
 
@@ -58,20 +59,38 @@ def get_data(cfg):
         std = data.std(0).unsqueeze(0)
         return lambda x: (x - mean) / std
 
-    train_set = swm.data.VideoDataset(
-        cfg.dataset_name + "_train",
-        num_steps=cfg.n_steps,
-        frameskip=cfg.frameskip,
-        transform=None,
-        cache_dir=cfg.get("cache_dir", None),
-    )    
-    val_set = swm.data.VideoDataset(
-        cfg.dataset_name + "_val",
-        num_steps=cfg.n_steps,
-        frameskip=cfg.frameskip,
-        transform=None,
-        cache_dir=cfg.get("cache_dir", None),
-    )
+    if "clevrer" in cfg.dataset_name:
+        train_set = ClevrerVideoDataset(
+            cfg.dataset_name + "_train",
+            num_steps=cfg.n_steps,
+            frameskip=cfg.frameskip,
+            transform=None,
+            cache_dir=cfg.get("cache_dir", None),
+
+        )    
+        val_set = ClevrerVideoDataset(
+            cfg.dataset_name + "_val",
+            num_steps=cfg.n_steps,
+            frameskip=cfg.frameskip,
+            transform=None,
+            cache_dir=cfg.get("cache_dir", None),
+            idx_offset=10000,  # to avoid episode index conflict with train set
+        )    
+    else :
+        train_set = swm.data.VideoDataset(
+            cfg.dataset_name + "_train",
+            num_steps=cfg.n_steps,
+            frameskip=cfg.frameskip,
+            transform=None,
+            cache_dir=cfg.get("cache_dir", None),
+        )    
+        val_set = swm.data.VideoDataset(
+            cfg.dataset_name + "_val",
+            num_steps=cfg.n_steps,
+            frameskip=cfg.frameskip,
+            transform=None,
+            cache_dir=cfg.get("cache_dir", None),
+        )
 
     # Image size must be multiple of DINO patch size (14)
     img_size = (cfg.image_size // cfg.patch_size) * DINO_PATCH_SIZE

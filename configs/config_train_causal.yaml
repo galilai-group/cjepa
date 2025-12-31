@@ -20,12 +20,12 @@ rankme_queue_length: 2048
 dataset_name: clevrer
 cache_dir: "/cs/data/people/hnam16/.stable_worldmodel"
 
-output_model_name: causal_world_model_ver2
+output_model_name: causal_world_model
 training_type: video  # options: video, wm
 
 trainer:
   max_epochs: 100
-  # strategy: ddp 
+  strategy: ddp 
   devices: auto
   accelerator: gpu 
   precision: 16-mixed
@@ -70,7 +70,7 @@ dump_object: true
 # Videosaur configuration (for slot-attention encoder)
 videosaur:
   NUM_SLOTS: 7
-  SLOT_DIM: 64
+  SLOT_DIM: 128
   DINO_MODEL: vit_small_patch14_dinov2.lvd142m
   FEAT_DIM: 384
   NUM_PATCHES: 196

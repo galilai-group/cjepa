@@ -160,7 +160,7 @@ Use scripts below, or refer to the command if you are not using slurm.
 sbatch script/{dataset}/run_videowm.sh # run DINOwm with mp4
 sbatch script/{dataset}/run_videowm_reg.sh # run DINOwm, but with dinov2_with_register checkpoint
 sbatch script/{dataset}/run_ocwm.sh # run object centric world model, need VIDEOSAUR checkpoint downloaded from above.
-% [WIP] sbatch script/{dataset}/causalwm.sh # run causalwm, which has causal slot masking with VJEPA style predictor.
+sbatch script/{dataset}/run_causalwm.sh # run causalwm, which has causal slot masking. style predictor.
 ```
 
 * All config files are in `configs/`.

@@ -8,11 +8,12 @@ import stable_worldmodel as swm
 
 ROOT_DIR="/cs/data/people/hnam16/data/clevrer"
 DATASET='clevrer'
+SAVE_DIR = swm.data.utils.get_cache_dir()
 
 def save_swm_dataset(dir, split):
     # expect path towards a single directory containing all .mp4 video files of clevrer
     video_dir = Path(dir) / split
-    dataset_dir = Path(ROOT_DIR) / str(DATASET +f'_{split}')
+    dataset_dir = SAVE_DIR / str(DATASET +f'_{split}')
 
 
     records = {"episode_idx": [], "step_idx": [], "pixels": [], "episode_len": []}
@@ -33,6 +34,8 @@ def save_swm_dataset(dir, split):
         video_name = f"videos/{ep_idx}_pixels.mp4"
         decoder = VideoDecoder(video.as_posix())
         num_frames = len(decoder)
+        # Convert to Python int to avoid numpy types
+        num_frames = int(num_frames)
 
         # extend dataset
         records["episode_idx"].extend([ep_idx] * num_frames)

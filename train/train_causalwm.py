@@ -18,7 +18,7 @@ from transformers import AutoModel
 import wandb
 from custom_models.dinowm_causal import CausalWM
 from custom_models.cjepa_predictor import MaskedSlotPredictor
-
+from custom_models.custom_codes.custom_dataset import ClevrerVideoDataset
 
 import os
 import gdown
@@ -62,20 +62,38 @@ def get_data(cfg):
         std = data.std(0).unsqueeze(0)
         return lambda x: (x - mean) / std
 
-    train_set = swm.data.VideoDataset(
-        cfg.dataset_name + "_train",
-        num_steps=cfg.n_steps,
-        frameskip=cfg.frameskip,
-        transform=None,
-        cache_dir=cfg.get("cache_dir", None),
-    )    
-    val_set = swm.data.VideoDataset(
-        cfg.dataset_name + "_val",
-        num_steps=cfg.n_steps,
-        frameskip=cfg.frameskip,
-        transform=None,
-        cache_dir=cfg.get("cache_dir", None),
-    )
+    if "clevrer" in cfg.dataset_name:
+        train_set = ClevrerVideoDataset(
+            cfg.dataset_name + "_train",
+            num_steps=cfg.n_steps,
+            frameskip=cfg.frameskip,
+            transform=None,
+            cache_dir=cfg.get("cache_dir", None),
+
+        )    
+        val_set = ClevrerVideoDataset(
+            cfg.dataset_name + "_val",
+            num_steps=cfg.n_steps,
+            frameskip=cfg.frameskip,
+            transform=None,
+            cache_dir=cfg.get("cache_dir", None),
+            idx_offset=10000,  # to avoid episode index conflict with train set
+        )    
+    else :
+        train_set = swm.data.VideoDataset(
+            cfg.dataset_name + "_train",
+            num_steps=cfg.n_steps,
+            frameskip=cfg.frameskip,
+            transform=None,
+            cache_dir=cfg.get("cache_dir", None),
+        )    
+        val_set = swm.data.VideoDataset(
+            cfg.dataset_name + "_val",
+            num_steps=cfg.n_steps,
+            frameskip=cfg.frameskip,
+            transform=None,
+            cache_dir=cfg.get("cache_dir", None),
+        )
 
     # Image size must be multiple of DINO patch size (14)
     img_size = (cfg.image_size // cfg.patch_size) * DINO_PATCH_SIZE
@@ -94,7 +112,7 @@ def get_data(cfg):
             *[get_img_pipeline(f"{col}.{i}", f"{col}.{i}", img_size) for col in ["pixels"] for i in range(cfg.n_steps)],
             spt.data.transforms.WrapTorchTransform(
                 norm_col_transform(train_set.dataset, "action"),
-                source="action",
+                source="action", 
                 target="action",
             ),
             spt.data.transforms.WrapTorchTransform(
@@ -369,12 +387,12 @@ def run(cfg):
             name="rankme/predictor",
             target="predictor_embed",
             queue_length=cfg.get("rankme_queue_length", 2048),
-            target_shape=cfg.videosaur.NUM_SLOTS * 64,  # S * D flattened
+            target_shape=cfg.videosaur.NUM_SLOTS * cfg.videosaur.SLOT_DIM,  # S * D flattened
         )
         callbacks.append(rankme_callback)
         logging.info(
             f"RankMe monitoring enabled (queue_length={cfg.get('rankme_queue_length', 2048)}, "
-            f"target_shape={cfg.videosaur.NUM_SLOTS * 64})"
+            f"target_shape={cfg.videosaur.NUM_SLOTS * cfg.videosaur.SLOT_DIM})"
         )
 
 
