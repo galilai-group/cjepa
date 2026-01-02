@@ -3,7 +3,7 @@
 conda create -n dino310 python=3.10 -y
 conda activate dino310
 conda install anaconda::ffmpeg
-pip install seaborn webdataset swig einops uv torchcodec
+pip install seaborn webdataset swig einops uv torchcodec av
 uv pip install -e ./stable-pretraining % make sure you init submodule
 uv pip install -e ./stable-worldmodel % make sure you init submodule
 uv pip install accelerate tensorboard tensorboardX  

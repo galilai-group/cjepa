@@ -137,25 +137,26 @@ class CausalWM_AP(torch.nn.Module):
 
         return info
 
-    def split_embedding(self, embedding, action_dim, proprio_dim):
+    def split_embedding(self, embedding, extra_dims):  # action_dim, proprio_dim):
         split_embed = {}
-        pixel_dim = embedding.shape[-1] - action_dim - proprio_dim
+        pixel_dim = embedding.shape[-1] - sum(extra_dims)
 
         # == pixels embedding
         split_embed["pixels_embed"] = embedding[..., :pixel_dim]
 
-        # == proprio embedding
-        if proprio_dim > 0:
-            proprio_emb = embedding[..., pixel_dim : pixel_dim + proprio_dim]
-            split_embed["proprio_embed"] = proprio_emb[:, :, :, 0]  # all patches are the same
+        # == extra embeddings
+        start_dim = pixel_dim
+        for i, key in enumerate(["action", "proprio"]):
+            dim = extra_dims[i]
+            extra_emb = embedding[..., start_dim : start_dim + dim]
+            split_embed[f"{key}_embed"] = extra_emb[:, :, :, 0]  # all patches are the same
+            start_dim += dim
 
-        if action_dim > 0:
-            action_emb = embedding[..., -action_dim:]
-            split_embed["action_embed"] = action_emb[:, :, :, 0]  # all patches are the same
         return split_embed
 
     def replace_action_in_embedding(self, embedding, act):
         """Replace the action embeddings in the latent state z with the provided actions."""
+        assert self.action_encoder is not None, "No action encoder defined in the model."
         n_patches = embedding.shape[3]
         B, N = act.shape[:2]
         act_flat = rearrange(act, "b n ... -> (b n) ...")
@@ -171,21 +172,21 @@ class CausalWM_AP(torch.nn.Module):
         """Rollout the world model given an initial observation and a sequence of actions.
 
         Params:
-        obs_start: n current observations (B, N, n, C, H, W)
-        actions: current and predicted actions (B, N, n+t, action_dim)
+        obs_start: n current observations (B, n, C, H, W)
+        actions: current and predicted actions (B, n+t, action_dim)
 
         Returns:
-        z_obs: dict with latent observations (B, N, n+t+1, n_patches, D)
-        z: predicted latent states (B, N, n+t+1, n_patches, D)
+        z_obs: dict with latent observations (B, n+t+1, n_patches, D)
+        z: predicted latent states (B, n+t+1, n_patches, D)
         """
 
         assert "pixels" in info, "pixels not in info_dict"
         n_obs = info["pixels"].shape[2]
+        proprio_key = "proprio" if "proprio" in info else None
+        emb_keys = [proprio_key] if proprio_key in info else []        
         # == add action to info dict
         act_0 = action_sequence[:, :, :n_obs]
         info["action"] = act_0
-
-        proprio_key = "proprio" if "proprio" in info else None
 
         # check if we have already computed the initial embedding for this state
         if (
@@ -221,25 +222,29 @@ class CausalWM_AP(torch.nn.Module):
                 .unsqueeze(1)
                 .expand(-1, action_sequence.shape[1], *([-1] * (init_info_dict["pixels_embed"].ndim - 1)))
             )
-            if proprio_key is not None:
-                init_info_dict["proprio_embed"] = (
-                    init_info_dict["proprio_embed"]
+
+            for key in emb_keys:
+                init_info_dict[f"{key}_embed"] = (
+                    init_info_dict[f"{key}_embed"]
                     .unsqueeze(1)
-                    .expand(-1, action_sequence.shape[1], *([-1] * (init_info_dict["proprio_embed"].ndim - 1)))
+                    .expand(-1, action_sequence.shape[1], *([-1] * (init_info_dict[f"{key}_embed"].ndim - 1)))
                 )
+
             init_info_dict = {k: v.detach().clone() if torch.is_tensor(v) else v for k, v in init_info_dict.items()}
             self._init_cached_info = init_info_dict
 
         info["embed"] = init_info_dict["embed"]
         info["pixels_embed"] = init_info_dict["pixels_embed"]
-        if proprio_key is not None:
-            info["proprio_embed"] = init_info_dict["proprio_embed"]
+
+        for key in emb_keys:
+            info[f"{key}_embed"] = init_info_dict[f"{key}_embed"]
 
         # actually compute the embedding of action for each candidate
         info["embed"] = self.replace_action_in_embedding(info["embed"], action_sequence[:, :, :n_obs])
-        action_dim = init_info_dict["action_embed"].shape[-1]
-        info["action_embed"] = info["embed"][:, :, :n_obs, 0, -action_dim:]
-        # number of steps to predict
+        # action_dim = init_info_dict["action_embed"].shape[-1]
+        info["action_embed"] = action_sequence[:, :, :n_obs]  # info["embed"][:, :, :n_obs, 0, -action_dim:]
+
+        # number of step to predict
         act_pred = action_sequence[:, :, n_obs:]
         n_steps = act_pred.shape[2]
 
@@ -265,36 +270,43 @@ class CausalWM_AP(torch.nn.Module):
         # predict the last state (n+t+1)
         pred_embed = self.predict(z_flat[:, -self.history_size :])[:, -1:]  # (B, 1, P, D)
         z_flat = torch.cat([z_flat, pred_embed], dim=1)
-        z = rearrange(pred_embed, "(b n) ... -> b n ...", b=B, n=N)
+        z = rearrange(z_flat, "(b n) ... -> b n ...", b=B, n=N)
         # == update info dict with predicted embeddings
         info["predicted_embedding"] = z
-        # get the dimension of each part of the embedding
+
         action_dim = 0 if "action_embed" not in info else info["action_embed"].shape[-1]
         proprio_dim = 0 if "proprio_embed" not in info else info["proprio_embed"].shape[-1]
-        splitted_embed = self.split_embedding(z, action_dim, proprio_dim)
+        extra_dims = [action_dim, proprio_dim]
+
+        splitted_embed = self.split_embedding(z, extra_dims)
         info.update({f"predicted_{k}": v for k, v in splitted_embed.items()})
 
         return info
 
+    def criterion(self, info_dict: dict, action_candidates: torch.Tensor):
+        """Compute the cost for planning. Should be overridden for custom costs."""
+        proprio_key = "proprio" if "proprio" in info_dict else None
+        emb_keys = [proprio_key] if proprio_key in info_dict else [] 
+        cost = 0.0
+
+        for key in emb_keys + ["pixels"]:
+            preds = info_dict[f"predicted_{key}_embed"]
+            goal = info_dict[f"{key}_goal_embed"]
+            cost = cost + F.mse_loss(preds[:, :, -1:], goal, reduction="none").mean(dim=tuple(range(2, preds.ndim)))
+        return cost
+
     def get_cost(self, info_dict: dict, action_candidates: torch.Tensor):
         assert "action" in info_dict, "action key must be in info_dict"
         assert "pixels" in info_dict, "pixels key must be in info_dict"
-        assert action_candidates.ndim == 4, "action must have shape (B, N, n, action_dim)"
-        assert info_dict["pixels"].ndim == 6, "pixels must have shape (B, N, n, C, H, W)"
-        assert action_candidates.shape[0] == info_dict["pixels"].shape[0], (
-            f"Batch size of action_candidates ({action_candidates.shape[0]}) must match batch size of pixels ({info_dict['pixels'].shape[0]})"
-        )
-        assert action_candidates.shape[1] == info_dict["pixels"].shape[1], (
-            f"Number of samples in action_candidates ({action_candidates.shape[1]}) must match number of samples in pixels ({info_dict['pixels'].shape[1]})"
-        )
 
-        # == get the goal embedding
-        proprio_key = "goal_proprio" if "goal_proprio" in info_dict else None
-
-        # move to device
+        # move to device and unsqueeze time
         for k, v in info_dict.items():
             if torch.is_tensor(v):
                 info_dict[k] = v.to(next(self.parameters()).device)
+        proprio_key = "proprio" if "proprio" in info_dict else None
+        emb_keys = [proprio_key] if proprio_key in info_dict else []
+
+        # == get the goal embedding
 
         # check if we have already computed the goal embedding for this goal
         if (
@@ -315,55 +327,49 @@ class CausalWM_AP(torch.nn.Module):
                 goal_info_dict,
                 target="goal_embed",
                 pixels_key="goal",
-                proprio_key=proprio_key,
-                action_key=None,
+                prefix="goal_",
+                emb_keys=emb_keys,
             )
+
             goal_info_dict["goal_embed"] = (
                 goal_info_dict["goal_embed"]
                 .unsqueeze(1)
                 .expand(-1, action_candidates.shape[1], *([-1] * (goal_info_dict["goal_embed"].ndim - 1)))
             )
+
             goal_info_dict["pixels_goal_embed"] = (
                 goal_info_dict["pixels_goal_embed"]
                 .unsqueeze(1)
                 .expand(-1, action_candidates.shape[1], *([-1] * (goal_info_dict["pixels_goal_embed"].ndim - 1)))
             )
-            if proprio_key is not None:
-                goal_info_dict["proprio_goal_embed"] = (
-                    goal_info_dict["proprio_goal_embed"]
+
+            for key in emb_keys:
+                goal_info_dict[f"{key}_goal_embed"] = (
+                    goal_info_dict[f"{key}_goal_embed"]
                     .unsqueeze(1)
-                    .expand(-1, action_candidates.shape[1], *([-1] * (goal_info_dict["proprio_goal_embed"].ndim - 1)))
+                    .expand(-1, action_candidates.shape[1], *([-1] * (goal_info_dict[f"{key}_goal_embed"].ndim - 1)))
                 )
+
             goal_info_dict = {k: v.detach() if torch.is_tensor(v) else v for k, v in goal_info_dict.items()}
             self._goal_cached_info = goal_info_dict
 
         info_dict["goal_embed"] = goal_info_dict["goal_embed"]
         info_dict["pixels_goal_embed"] = goal_info_dict["pixels_goal_embed"]
-        if proprio_key is not None:
-            info_dict["proprio_goal_embed"] = goal_info_dict["proprio_goal_embed"]
+
+        for key in emb_keys:
+            info_dict[f"{key}_goal_embed"] = goal_info_dict[f"{key}_goal_embed"]
 
         # == run world model
         info_dict = self.rollout(info_dict, action_candidates)
 
-        # == get the pixels cost
-        pixels_preds = info_dict["predicted_pixels_embed"]  # (B, N, T, P, d)
-        pixels_goal = info_dict["pixels_goal_embed"]
-        pixels_cost = F.mse_loss(pixels_preds[:, :, -1:], pixels_goal, reduction="none").mean(
-            dim=tuple(range(2, pixels_preds.ndim))
-        )
+        # cost = 0.0
 
-        cost = pixels_cost
+        # for key in emb_keys + ["pixels"]:
+        #     preds = info_dict[f"predicted_{key}_embed"]
+        #     goal = info_dict[f"{key}_goal_embed"]
+        #     cost = cost + F.mse_loss(preds[:, :, -1:], goal, reduction="none").mean(dim=tuple(range(2, preds.ndim)))
 
-        if proprio_key is not None:
-            # == get the proprio cost
-            proprio_preds = info_dict["predicted_proprio_embed"]
-            proprio_goal = info_dict["proprio_goal_embed"]
-            proprio_cost = F.mse_loss(proprio_preds[:, :, -1:], proprio_goal, reduction="none").mean(
-                dim=tuple(range(2, proprio_preds.ndim))
-            )
-            cost = cost + proprio_cost
-
-        return cost
+        return self.criterion(info_dict, action_candidates)
 
 
 class Embedder(torch.nn.Module):
@@ -384,13 +390,45 @@ class Embedder(torch.nn.Module):
         self.patch_embed = torch.nn.Conv1d(in_chans, emb_dim, kernel_size=tubelet_size, stride=tubelet_size)
 
     def forward(self, x):
-        x = x.float()
-        x = x.permute(0, 2, 1)  # (B, T, B) -> (B, D, T)
-        x = self.patch_embed(x)
-        x = x.permute(0, 2, 1)  # (B, D, T) -> (B, T, D)
+        with torch.amp.autocast(enabled=False, device_type=x.device.type):
+            x = x.permute(0, 2, 1)  # (B, T, B) -> (B, D, T)
+            x = self.patch_embed(x)
+            x = x.permute(0, 2, 1)  # (B, D, T) -> (B, T, D)
         return x
 
 
+class CausalPredictor(nn.Module):
+    def __init__(
+        self,
+        *,
+        num_patches,
+        num_frames,
+        dim,
+        depth,
+        heads,
+        mlp_dim,
+        pool="cls",
+        dim_head=64,
+        dropout=0.0,
+        emb_dropout=0.0,
+    ):
+        super().__init__()
+        assert pool in {"cls", "mean"}, "pool type must be either cls (cls token) or mean (mean pooling)"
+
+        self.num_patches = num_patches
+        self.num_frames = num_frames
+
+        self.pos_embedding = nn.Parameter(torch.randn(1, num_frames * (num_patches), dim))  # dim for the pos encodings
+        self.dropout = nn.Dropout(emb_dropout)
+        self.transformer = Transformer(dim, depth, heads, dim_head, mlp_dim, dropout, num_patches, num_frames)
+        self.pool = pool
+
+    def forward(self, x):  # x: (b, window_size * H/patch_size * W/patch_size, 384)
+        b, n, _ = x.shape
+        x = x + self.pos_embedding[:, :n]
+        x = self.dropout(x)
+        x = self.transformer(x)
+        return x
 
 
 class FeedForward(nn.Module):
@@ -491,209 +529,3 @@ class Transformer(nn.Module):
             x = ff(x) + x
 
         return self.norm(x)
-
-
-def get_world_size():
-    if not dist.is_available():
-        return 1
-
-    if not dist.is_initialized():
-        return 1
-
-    return dist.get_world_size()
-
-
-def all_reduce(tensor, op=dist.ReduceOp.SUM):
-    world_size = get_world_size()
-
-    if world_size == 1:
-        return tensor
-
-    dist.all_reduce(tensor, op=op)
-
-    return tensor
-
-
-class Quantize(nn.Module):
-    def __init__(self, dim, n_embed, decay=0.99, eps=1e-5):
-        super().__init__()
-
-        self.dim = dim
-        self.n_embed = n_embed
-        self.decay = decay
-        self.eps = eps
-
-        embed = torch.randn(dim, n_embed)
-        self.register_buffer("embed", embed)
-        self.register_buffer("cluster_size", torch.zeros(n_embed))
-        self.register_buffer("embed_avg", embed.clone())
-
-    def forward(self, input):
-        flatten = input.reshape(-1, self.dim)
-        dist = flatten.pow(2).sum(1, keepdim=True) - 2 * flatten @ self.embed + self.embed.pow(2).sum(0, keepdim=True)
-        _, embed_ind = (-dist).max(1)
-        embed_onehot = F.one_hot(embed_ind, self.n_embed).type(flatten.dtype)
-        embed_ind = embed_ind.view(*input.shape[:-1])
-        quantize = self.embed_code(embed_ind)
-
-        if self.training:
-            embed_onehot_sum = embed_onehot.sum(0)
-            embed_sum = flatten.transpose(0, 1) @ embed_onehot
-
-            all_reduce(embed_onehot_sum)
-            all_reduce(embed_sum)
-
-            self.cluster_size.data.mul_(self.decay).add_(embed_onehot_sum, alpha=1 - self.decay)
-            self.embed_avg.data.mul_(self.decay).add_(embed_sum, alpha=1 - self.decay)
-            n = self.cluster_size.sum()
-            cluster_size = (self.cluster_size + self.eps) / (n + self.n_embed * self.eps) * n
-            embed_normalized = self.embed_avg / cluster_size.unsqueeze(0)
-            self.embed.data.copy_(embed_normalized)
-
-        diff = (quantize.detach() - input).pow(2).mean()
-        quantize = input + (quantize - input).detach()
-
-        return quantize, diff, embed_ind
-
-    def embed_code(self, embed_id):
-        return F.embedding(embed_id, self.embed.transpose(0, 1))
-
-
-class ResBlock(nn.Module):
-    def __init__(self, in_channel, channel):
-        super().__init__()
-
-        self.conv = nn.Sequential(
-            nn.ReLU(),
-            nn.Conv2d(in_channel, channel, 3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(channel, in_channel, 1),
-        )
-
-    def forward(self, input):
-        out = self.conv(input)
-        out += input
-
-        return out
-
-
-class Encoder(nn.Module):
-    def __init__(self, in_channel, channel, n_res_block, n_res_channel, stride):
-        super().__init__()
-
-        if stride == 4:
-            blocks = [
-                nn.Conv2d(in_channel, channel // 2, 4, stride=2, padding=1),
-                nn.ReLU(inplace=True),
-                nn.Conv2d(channel // 2, channel, 4, stride=2, padding=1),
-                nn.ReLU(inplace=True),
-                nn.Conv2d(channel, channel, 3, padding=1),
-            ]
-
-        elif stride == 2:
-            blocks = [
-                nn.Conv2d(in_channel, channel // 2, 4, stride=2, padding=1),
-                nn.ReLU(inplace=True),
-                nn.Conv2d(channel // 2, channel, 3, padding=1),
-            ]
-
-        for i in range(n_res_block):
-            blocks.append(ResBlock(channel, n_res_channel))
-
-        blocks.append(nn.ReLU(inplace=True))
-
-        self.blocks = nn.Sequential(*blocks)
-
-    def forward(self, input):
-        return self.blocks(input)
-
-
-class Decoder(nn.Module):
-    def __init__(self, in_channel, out_channel, channel, n_res_block, n_res_channel, stride):
-        super().__init__()
-
-        blocks = [nn.Conv2d(in_channel, channel, 3, padding=1)]
-
-        for i in range(n_res_block):
-            blocks.append(ResBlock(channel, n_res_channel))
-
-        blocks.append(nn.ReLU(inplace=True))
-
-        if stride == 4:
-            blocks.extend(
-                [
-                    nn.ConvTranspose2d(channel, channel // 2, 4, stride=2, padding=1),
-                    nn.ReLU(inplace=True),
-                    nn.ConvTranspose2d(channel // 2, out_channel, 4, stride=2, padding=1),
-                ]
-            )
-
-        elif stride == 2:
-            blocks.append(nn.ConvTranspose2d(channel, out_channel, 4, stride=2, padding=1))
-
-        self.blocks = nn.Sequential(*blocks)
-
-    def forward(self, input):
-        return self.blocks(input)
-
-
-class VQVAE(nn.Module):
-    def __init__(
-        self,
-        in_channel=3,
-        channel=128,
-        n_res_block=2,
-        n_res_channel=32,
-        emb_dim=64,
-        n_embed=512,
-        decay=0.99,
-        quantize=True,
-    ):
-        super().__init__()
-
-        self.quantize = quantize
-        self.quantize_b = Quantize(emb_dim, n_embed)
-
-        if not quantize:
-            for param in self.quantize_b.parameters():
-                param.requires_grad = False
-
-        self.upsample_b = Decoder(emb_dim, emb_dim, channel, n_res_block, n_res_channel, stride=4)
-        self.dec = Decoder(
-            emb_dim,
-            in_channel,
-            channel,
-            n_res_block,
-            n_res_channel,
-            stride=4,
-        )
-        self.info = f"in_channel: {in_channel}, channel: {channel}, n_res_block: {n_res_block}, n_res_channel: {n_res_channel}, emb_dim: {emb_dim}, n_embed: {n_embed}, decay: {decay}"
-
-    def forward(self, input):
-        """
-        input: (b, t, num_patches, emb_dim)
-        """
-        num_patches = input.shape[2]
-        num_side_patches = int(num_patches**0.5)
-        input = rearrange(input, "b t (h w) e -> (b t) h w e", h=num_side_patches, w=num_side_patches)
-
-        if self.quantize:
-            quant_b, diff_b, id_b = self.quantize_b(input)
-        else:
-            quant_b, diff_b = input, torch.zeros(1).to(input.device)
-
-        quant_b = quant_b.permute(0, 3, 1, 2)
-        diff_b = diff_b.unsqueeze(0)
-        dec = self.decode(quant_b)
-        return dec, diff_b  # diff is 0 if no quantization
-
-    def decode(self, quant_b):
-        upsample_b = self.upsample_b(quant_b)
-        dec = self.dec(upsample_b)  # quant: (128, 64, 64)
-        return dec
-
-    def decode_code(self, code_b):  # not used (only used in sample.py in original repo)
-        quant_b = self.quantize_b.embed_code(code_b)
-        quant_b = quant_b.permute(0, 3, 1, 2)
-        dec = self.decode(quant_b)
-        return dec

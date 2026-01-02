@@ -20,6 +20,7 @@ class CausalWM(torch.nn.Module):
         decoder=None,
         history_size=3,
         num_pred=1,
+        interpolate_pos_encoding=True,
         device="cpu",
     ):
         super().__init__()
@@ -34,6 +35,7 @@ class CausalWM(torch.nn.Module):
         self.history_size = history_size
         self.num_pred = num_pred
         self.device = device
+        self.interpolate_pos_encoding = interpolate_pos_encoding
 
         decoder_scale = 16  # from vqvae
         num_side_patches = 224 // decoder_scale
@@ -44,17 +46,20 @@ class CausalWM(torch.nn.Module):
         self,
         info,
         pixels_key="pixels",
+        prefix=None,
         target="embed",
         proprio_key=None,
         action_key=None,
         return_all_slotstates=False,
         manual_slot_state=None
     ):
-        # assert target not in info, f"{target} key already in info_dict"
+        assert target not in info, f"{target} key already in info_dict"
+
+        emb_keys = [action_key, proprio_key]
+        prefix = prefix or ""
+
         # == pixels embeddings
         pixels = info[pixels_key].float()  # (B, T, 3, H, W)
-        # pixels = pixels.unsqueeze(1) if pixels.ndim == 4 else pixels
-
         B = pixels.shape[0]
         pixels_embed = self.encoder(pixels)#.last_hidden_state.detach() # bt, n_patches+1, d
         # pixels_embed["backbone_features"].shape = 8, 4, 1369, 384 > each patch has 384 dim (dino)
@@ -76,30 +81,22 @@ class CausalWM(torch.nn.Module):
         embedding = pixels_embed
         info[f"pixels_{target}"] = pixels_embed
 
-        # == proprio embeddings
-        if proprio_key is not None:
-            proprio = info[proprio_key].float()
-            proprio_embed = self.proprio_encoder(proprio)  # (B, T, P) -> (B, T, P_emb)
-            info[f"proprio_{target}"] = proprio_embed
+        for key in emb_keys:
+            if key == "proprio":
+                extr_enc = self.proprio_encoder
+            elif key == "action":
+                extr_enc = self.action_encoder
+            else:
+                continue
+            extra_input = info[f"{prefix}{key}"].float()  # (B, T, dim)
+            extra_embed = extr_enc(extra_input)  # (B, T, dim) -> (B, T, emb_dim)
+            info[f"{key}_{target}"] = extra_embed
 
-            # copy proprio embedding across patches for each time step
-            proprio_tiled = repeat(proprio_embed.unsqueeze(2), "b t 1 d -> b t p d", p=n_patches)
-
-            # concatenate along feature dimension
-            embedding = torch.cat([pixels_embed, proprio_tiled], dim=3)
-
-        # == action embeddings
-        if action_key is not None:
-            action = info[action_key].float()
-
-            action_embed = self.action_encoder(action)  # (B, T, A) -> (B, T, A_emb)
-            info[f"action_{target}"] = action_embed
-
-            # copy action embedding across patches for each time step
-            action_tiled = repeat(action_embed.unsqueeze(2), "b t 1 d -> b t p d", p=n_patches)
+            # copy extra embedding across patches for each time step
+            extra_tiled = repeat(extra_embed.unsqueeze(2), "b t 1 d -> b t p d", p=n_patches)
 
             # concatenate along feature dimension
-            embedding = torch.cat([embedding, action_tiled], dim=3)
+            embedding = torch.cat([embedding, extra_tiled], dim=3)
 
         info[target] = embedding  # (B, T, P, d)
 
@@ -328,7 +325,8 @@ class CausalWM(torch.nn.Module):
                 target="goal_embed",
                 pixels_key="goal",
                 prefix="goal_",
-                emb_keys=emb_keys,
+                proprio_key=proprio_key,
+                action_key=None,
             )
 
             goal_info_dict["goal_embed"] = (

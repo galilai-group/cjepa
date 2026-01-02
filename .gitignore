@@ -6,7 +6,7 @@ temp/*
 **/*.ckpt
 **/*.mp4
 **vjepa**
-
+outputs/*
 
 # logs / vscode
 **.out
