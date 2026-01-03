@@ -199,7 +199,7 @@ def setup_wandb(cfg, rank):
     return wandb
 
 
-def compute_loss(predictor, batch, cfg, device):
+def compute_loss(predictor, batch, cfg, device, inference=False):
     """Compute loss for a batch."""
     embed = batch["embed"].to(device)  # (B, T, S, D)
 
@@ -208,7 +208,10 @@ def compute_loss(predictor, batch, cfg, device):
     target = embed[:, cfg.dinowm.history_size:cfg.dinowm.history_size + cfg.dinowm.num_preds, :, :]  # (B, num_preds, S, D)
 
     # Forward pass
-    pred_output = predictor(history)
+    if inference:
+        pred_output = predictor.inference(history)
+    else:
+        pred_output = predictor(history)
     pred_embedding, mask_indices = pred_output
 
     # pred_embedding: (B, history_size + num_preds, S, D)
@@ -249,7 +252,7 @@ def validate(predictor, val_loader, cfg, device, world_size):
     num_batches = 0
 
     for batch in val_loader:
-        losses = compute_loss(predictor, batch, cfg, device)
+        losses = compute_loss(predictor, batch, cfg, device, inference=True)
         total_loss += losses["loss"].item()
         total_loss_future += losses["loss_future"].item()
         total_loss_masked += losses["loss_masked_history"].item()
@@ -420,6 +423,57 @@ def run(cfg):
     model_params = predictor.module.parameters() if is_ddp else predictor.parameters()
     optimizer = torch.optim.AdamW(model_params, lr=cfg.predictor_lr)
 
+    if cfg.rollout.get("rollout_only", False):
+        # Load checkpoint for rollout only
+        checkpoint_path = cfg.rollout.get("rollout_checkpoint", None)
+        if checkpoint_path is None:
+            raise ValueError("rollout_checkpoint must be specified for rollout_only mode.")
+
+        map_location = {'cuda:%d' % 0: 'cuda:%d' % local_rank} if torch.cuda.is_available() else 'cpu'
+        state_dict = torch.load(checkpoint_path, map_location=map_location)
+        predictor.module.load_state_dict(state_dict) if is_ddp else predictor.load_state_dict(state_dict)
+
+        if is_main_process(rank):
+            logging.info(f"Loaded checkpoint from {checkpoint_path} for rollout only.")
+
+        # Rollout slots
+        logging.info("Starting slot rollout (128 -> 160 frames)...")
+
+        # Use the model without DDP wrapper for inference
+        predictor_for_rollout = predictor.module if is_ddp else predictor
+        predictor_for_rollout.eval()
+
+        rollout_data = {}
+
+        for split in ["train", "val", "test"]:
+            if split not in data:
+                logging.warning(f"Split '{split}' not found in data, skipping...")
+                continue
+
+            logging.info(f"Processing {split} split...")
+            rollout_data[split] = rollout_video_slots(
+                predictor_for_rollout, data[split], cfg, device, batch_size=cfg.rollout.get("rollout_batch_size", None)
+            )
+            logging.info(f"Finished {split}: {len(rollout_data[split])} videos")
+
+        # Save rollout data
+        embedding_path = Path(cfg.embedding_dir)
+        rollout_filename = f"unroll_{str(embedding_path.name)[:-4]}_lr{cfg.predictor_lr}_mask{cfg.num_masked_slots}.pkl"
+        rollout_path = embedding_path.parent / rollout_filename
+
+        with open(rollout_path, "wb") as f:
+            pkl.dump(rollout_data, f)
+
+        logging.info(f"Saved rollout slots to {rollout_path}")
+
+        if wandb_logger is not None:
+            wandb_logger.log({"rollout/path": str(rollout_path)})
+
+        # Cleanup and exit
+        if wandb_logger is not None:
+            wandb.finish()
+        cleanup_distributed()
+        return
     # Training loop
     log_every_n_epochs = cfg.get("log_every_n_epochs", 1)
     global_step = 0
@@ -514,7 +568,7 @@ def run(cfg):
         logging.info(f"Saved final model to {final_path}")
 
     # Rollout slots (only on main process)
-    if cfg.get("save_rollout", False) and is_main_process(rank):
+    if cfg.rollout.get("save_rollout", False) and is_main_process(rank):
         logging.info("Starting slot rollout (128 -> 160 frames)...")
 
         # Use the model without DDP wrapper for inference
@@ -530,13 +584,13 @@ def run(cfg):
 
             logging.info(f"Processing {split} split...")
             rollout_data[split] = rollout_video_slots(
-                predictor_for_rollout, data[split], cfg, device, batch_size=cfg.get("rollout_batch_size", None)
+                predictor_for_rollout, data[split], cfg, device, batch_size=cfg.rollout.get("rollout_batch_size", None)
             )
             logging.info(f"Finished {split}: {len(rollout_data[split])} videos")
 
         # Save rollout data
         embedding_path = Path(cfg.embedding_dir)
-        rollout_filename = f"unroll_{embedding_path.name}"
+        rollout_filename = f"unroll_{str(embedding_path.name)[:-4]}_lr{cfg.predictor_lr}_mask{cfg.num_masked_slots}.pkl"
         rollout_path = embedding_path.parent / rollout_filename
 
         with open(rollout_path, "wb") as f:

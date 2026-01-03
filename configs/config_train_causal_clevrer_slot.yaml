@@ -17,8 +17,13 @@ wandb:
 dataset_name: clevrer
 embedding_dir: '/cs/data/people/hnam16/data/modified_extraction/clevrer_slots_step=100000_weight03_lr1e-4_clevrer.pkl'
 cache_dir: "/cs/data/people/hnam16/.stable_worldmodel"
-save_rollout: true
-rollout_batch_size: 64
+
+
+rollout:
+  save_rollout: true
+  rollout_batch_size: 64
+  rollout_only: false
+  rollout_checkpoint: '/cs/data/people/hnam16/.stable_worldmodel/19p_final_predictor.ckpt'
 
 output_model_name: causal_world_model
 training_type: video  # options: video, wm
