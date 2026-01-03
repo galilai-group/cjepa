@@ -164,7 +164,13 @@ sbatch script/{dataset}/run_ocwm.sh # run object centric world model, need VIDEO
 # make sure you load the correct checkpoint while running below!!
 sbatch script/{dataset}/run_ocwm.sh # run object centric world model, need VIDEOSAUR checkpoint downloaded from above.
 sbatch script/{dataset}/run_causalwm.sh # run causalwm, which has causal slot masking. style predictor.
-sbatch script/pusht/run_causalwm_AP_node.sh # only for pusht. When training cjepa predictor, it considers Action and Proprioception as causal nodes as well.
+
+# for clevrer, running causalwm with pre-extracted slot embeddings is available. (Extraction in Sec 4.2)
+# x10 times faster
+sbatch script/clevrer/run_causalwm_from_slot.sh
+
+# only for pusht. When training cjepa predictor, it considers Action and Proprioception as causal nodes as well.
+sbatch script/pusht/run_causalwm_AP_node.sh 
 ```
 
 * All config files are in `configs/`.
@@ -175,7 +181,7 @@ sbatch script/pusht/run_causalwm_AP_node.sh # only for pusht. When training cjep
 # 4. CLEVRER VQA
 
 ## 4.1 Prepare data for ALOE
- * Download 3 checkpoints from https://drive.google.com/drive/folders/1hhhoAf7n8C7cOgG9Vy-bgPX9ZrTd_iD0?usp=drive_link
+ * Download checkpoints from https://drive.google.com/drive/folders/1hhhoAf7n8C7cOgG9Vy-bgPX9ZrTd_iD0?usp=drive_link
  * Extract slot representation from each checkpoint by 
 
   ```sh
@@ -190,7 +196,7 @@ sbatch script/pusht/run_causalwm_AP_node.sh # only for pusht. When training cjep
   ```
   # clevrer_slots_{configuration}.pkl :
   {
-      'train': {'0_pixels.mp4': slots, '1_pixels.mp4': slots, ...},  # [128, 7, 128] each
+      'train': {'0_pixels.mp4': slots, '1_pixels.mp4': slots, ...},  # slots: [128, 7, 128] each
       'val': {...},
       'test': {...}
   }
