@@ -181,7 +181,7 @@ sbatch script/pusht/run_causalwm_AP_node.sh
 # 4. CLEVRER VQA
 
 ## 4.1 Prepare data for ALOE
- * Download checkpoints from https://drive.google.com/drive/folders/1hhhoAf7n8C7cOgG9Vy-bgPX9ZrTd_iD0?usp=drive_link
+ * Download checkpoints from https://drive.google.com/drive/u/3/folders/1by2KKB6f8y4KEQaMiRt1R8PswgAgoaft
  * Extract slot representation from each checkpoint by 
 
   ```sh
