@@ -221,7 +221,9 @@ sbatch script/pusht/run_causalwm_AP_node.sh
   * We will first rollout slots (from 128 frame to 160 frame) with checkpoint
 
   ```
-  # change CKPTPATH and SLOTPATH before.
+  # change CKPTPATH and SLOTPATH, `predictor_lr`, `num_masked_slots` before.
+  # `predictor_lr`, `num_masked_slots` should be matched with config is CKPT that you are using
+  # output name will be like : rollout_{SLOTPATH name}_{CKPT lr, CKPT masked slot}
   sbatch scripts/clevrer/rollout_causalwm_from_slot.sh
   ```
   * This will save

@@ -47,9 +47,12 @@ def main(params):
 
     # create checkpoint dir
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    exp_name = os.path.basename(args.params) + '_' + ts
+    if args.exp_name is None:
+        exp_name = os.path.basename(args.params) + '_' + ts + f"_{params.lr}"
+    else:
+        exp_name = args.exp_name 
     info = params.slots_root.split('/')[-1][:-4]
-    ckp_path = os.path.join('/cs/data/people/hnam16/aloe_checkpoint', exp_name, info)
+    ckp_path = os.path.join(args.out_dir, exp_name, info)
 
     print(f'INFO: local rank is {args.local_rank}, use_ddp={args.ddp}')
 
@@ -102,6 +105,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='SlotFormer training script')
     parser.add_argument('--task', type=str, default='clevrer_vqa')
     parser.add_argument('--params', type=str, required=True)
+    parser.add_argument('--exp_name', type=str, default=None)
+    parser.add_argument('--out_dir', type=str, default='outputs/')
     parser.add_argument('--weight', type=str, default='', help='load weight')
     parser.add_argument('--fp16', action='store_true', help='half-precision')
     parser.add_argument('--ddp', action='store_true', help='DDP training')
