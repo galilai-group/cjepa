@@ -15,6 +15,6 @@ echo "Node list: $SLURM_NODELIST"
 export PYTHONPATH=$(pwd)
 
 python slotformer/base_slots/extract_videosaur.py \
-    --weight="logs/videosaur_clevrer/2025-12-27-02-42-16_clevrer_dinov2/checkpoints/step=100000_weight03_lr5e-4_clevrer.ckpt" \
+    --weight="logs/videosaur/2025-12-24-19-00-21_clevrer_dinov2/checkpoints/step=100000_weight01_lr1e-4_clevrer.ckpt" \
     --data_root="/cs/data/people/hnam16/.stable_worldmodel" \
-    --save_path="/cs/data/people/hnam16/data/clevrer_slots"
+    --save_path="/cs/data/people/hnam16/data/modified_extraction/clevrer_slots"

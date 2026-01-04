@@ -48,7 +48,7 @@ def main(params):
     # create checkpoint dir
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     exp_name = os.path.basename(args.params) + '_' + ts
-    info = params.slots_root.split('/')[-1].split('.')[0]
+    info = params.slots_root.split('/')[-1][:-4]
     ckp_path = os.path.join('/cs/data/people/hnam16/aloe_checkpoint', exp_name, info)
 
     print(f'INFO: local rank is {args.local_rank}, use_ddp={args.ddp}')

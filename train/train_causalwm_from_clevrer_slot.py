@@ -209,35 +209,48 @@ def compute_loss(predictor, batch, cfg, device, inference=False):
 
     # Forward pass
     if inference:
-        pred_output = predictor.inference(history)
-    else:
-        pred_output = predictor(history)
-    pred_embedding, mask_indices = pred_output
+        pred_output = predictor.inference(history) # only future prediction
+        # Loss on future prediction
+        loss_future = F.mse_loss(pred_output, target.detach())
 
-    # pred_embedding: (B, history_size + num_preds, S, D)
-    pred_history = pred_embedding[:, :cfg.dinowm.history_size, :, :]
-    pred_future = pred_embedding[:, cfg.dinowm.history_size:cfg.dinowm.history_size + cfg.dinowm.num_preds, :, :]
+        losses = {}
+        losses["loss_future"] = loss_future
 
-    losses = {}
-
-    if len(mask_indices) > 0:
-        # Loss on masked slots in history
-        loss_masked_history = F.mse_loss(
-            pred_history[:, :, mask_indices, :],
-            history[:, :, mask_indices, :].detach()
-        )
-        losses["loss_masked_history"] = loss_masked_history
-    else:
         loss_masked_history = torch.tensor(0.0, device=device)
         losses["loss_masked_history"] = loss_masked_history
 
-    # Loss on future prediction
-    loss_future = F.mse_loss(pred_future, target.detach())
-    losses["loss_future"] = loss_future
+        # Total loss
+        total_loss = loss_masked_history + loss_future
+        losses["loss"] = total_loss
+        
+    else:
+        pred_output = predictor(history)
+        pred_embedding, mask_indices = pred_output
 
-    # Total loss
-    total_loss = loss_masked_history + loss_future
-    losses["loss"] = total_loss
+        # pred_embedding: (B, history_size + num_preds, S, D)
+        pred_history = pred_embedding[:, :cfg.dinowm.history_size, :, :]
+        pred_future = pred_embedding[:, cfg.dinowm.history_size:cfg.dinowm.history_size + cfg.dinowm.num_preds, :, :]
+
+        losses = {}
+
+        if len(mask_indices) > 0:
+            # Loss on masked slots in history
+            loss_masked_history = F.mse_loss(
+                pred_history[:, :, mask_indices, :],
+                history[:, :, mask_indices, :].detach()
+            )
+            losses["loss_masked_history"] = loss_masked_history
+        else:
+            loss_masked_history = torch.tensor(0.0, device=device)
+            losses["loss_masked_history"] = loss_masked_history
+
+        # Loss on future prediction
+        loss_future = F.mse_loss(pred_future, target.detach())
+        losses["loss_future"] = loss_future
+
+        # Total loss
+        total_loss = loss_masked_history + loss_future
+        losses["loss"] = total_loss
 
     return losses
 
@@ -458,7 +471,7 @@ def run(cfg):
 
         # Save rollout data
         embedding_path = Path(cfg.embedding_dir)
-        rollout_filename = f"unroll_{str(embedding_path.name)[:-4]}_lr{cfg.predictor_lr}_mask{cfg.num_masked_slots}.pkl"
+        rollout_filename = f"rollout_{str(embedding_path.name)[:-4]}_lr{cfg.predictor_lr}_mask{cfg.num_masked_slots}.pkl"
         rollout_path = embedding_path.parent / rollout_filename
 
         with open(rollout_path, "wb") as f:
@@ -590,7 +603,7 @@ def run(cfg):
 
         # Save rollout data
         embedding_path = Path(cfg.embedding_dir)
-        rollout_filename = f"unroll_{str(embedding_path.name)[:-4]}_lr{cfg.predictor_lr}_mask{cfg.num_masked_slots}.pkl"
+        rollout_filename = f"rollout_{str(embedding_path.name)[:-4]}_lr{cfg.predictor_lr}_mask{cfg.num_masked_slots}.pkl"
         rollout_path = embedding_path.parent / rollout_filename
 
         with open(rollout_path, "wb") as f:

@@ -165,7 +165,7 @@ sbatch script/{dataset}/run_ocwm.sh # run object centric world model, need VIDEO
 sbatch script/{dataset}/run_ocwm.sh # run object centric world model, need VIDEOSAUR checkpoint downloaded from above.
 sbatch script/{dataset}/run_causalwm.sh # run causalwm, which has causal slot masking. style predictor.
 
-# for clevrer, running causalwm with pre-extracted slot embeddings is available. (Extraction in Sec 4.2)
+# for clevrer, running causalwm with pre-extracted slot embeddings is available. (Extraction in Sec 4.1)
 # x10 times faster
 sbatch script/clevrer/run_causalwm_from_slot.sh
 
@@ -202,30 +202,48 @@ sbatch script/pusht/run_causalwm_AP_node.sh
   }
   ```
 
-  * Download questions
-  ```
-  mkdir -p dataset/clevrer/questions
-  cd dataset/clevrer/questions
-  wget http://data.csail.mit.edu/clevrer/questions/train.json
-  wget http://data.csail.mit.edu/clevrer/questions/validation.json
-  wget http://data.csail.mit.edu/clevrer/questions/test.json
-  ```
 
-
-  ## 4.2 Run ALOE
+  <!-- ## 4.2 Run ALOE w/o Predictor
+  * 4.1 should be done
   * Before running the code, replace `nerv/nerv/utils/misc.py` with `custom_codes/misc.py`. This is because the original code is based on `pytorch-lightning==0.8.*` while we are using `pytorch-lightning==2.6.*`.
-  * You should change params manually in `sloformer/clevrer_vqa/configs/aloe_clevrer_params.py` or `sloformer/clevrer_vqa/configs/aloe_clevrer_params-rollout.py`. For example, 
+  * You should change params manually in `sloformer/clevrer_vqa/configs/aloe_clevrer_params.py`. For example, 
     * `gpu` (it should exactly match the number of the visible devices)
     * `slots_root`
     * `lr`
-  * Default setting with 3 gpus  - 30G VRAM per gpu, 11 hr in total
-
-  ### Aloe without predictor (observable 128 frames)
 
   ```
   sbatch scripts/run_aloe.sh
+  ``` -->
+
+
+  ## 4.2 Run ALOE 
+  * This step needs slots from 4.1 and CJEPA checkpoint from 3.1
+  * We will first rollout slots (from 128 frame to 160 frame) with checkpoint
+
+  ```
+  # change CKPTPATH and SLOTPATH before.
+  sbatch scripts/clevrer/rollout_causalwm_from_slot.sh
+  ```
+  * This will save
+  ```
+  # rollout_clevrer_slots_{configuration}.pkl :
+  {
+      'train': {'0_pixels.mp4': slots, '1_pixels.mp4': slots, ...},  # slots: [160, 7, 128] each
+      'val': {...},
+      'test': {...}
+  }
   ```
 
+  * Now we are ready for running ALOE.
+  * Before running the code, replace `nerv/nerv/utils/misc.py` with `custom_codes/misc.py`. This is because the original code is based on `pytorch-lightning==0.8.*` while we are using `pytorch-lightning==2.6.*`.
+  * You should change params manually in `sloformer/clevrer_vqa/configs/aloe_clevrer_params-rollout.py`. For example, 
+    * `gpu` (it should exactly match the number of the visible devices)
+    * `slots_root` (path to `rollout_clevrer_slots_{configuration}.pkl`)
+    * `lr`
+  * Then finally run
+  ```
+  sbatch scripts/run_aloe_rollout.sh
+  ```
 
   
   
