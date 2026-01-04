@@ -48,9 +48,9 @@ def main(params):
     # create checkpoint dir
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     if args.exp_name is None:
-        exp_name = os.path.basename(args.params) + '_' + ts + f"_{params.lr}"
+        exp_name = os.path.basename(args.params) + '_' + ts + f"_aloeLR{params.lr}"
     else:
-        exp_name = args.exp_name 
+        exp_name = args.exp_name  + '_' + ts + f"_aloeLR{params.lr}"
     info = params.slots_root.split('/')[-1][:-4]
     ckp_path = os.path.join(args.out_dir, exp_name, info)
 
