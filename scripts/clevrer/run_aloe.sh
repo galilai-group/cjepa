@@ -1,9 +1,9 @@
 #!/bin/bash
-#SBATCH --job-name=aloe
+#SBATCH --job-name=exp85
 #SBATCH --time=5-00:00:00
 #SBATCH --partition=gpus
-#SBATCH --ntasks=2
-#SBATCH --gres=gpu:nvidia_rtx_a6000:2
+#SBATCH --ntasks=3
+#SBATCH --gres=gpu:nvidia_rtx_a6000:3
 #SBATCH --cpus-per-task=9
 #SBATCH --mem=100G
 #SBATCH --output=aloe-%j.out
@@ -14,7 +14,9 @@ echo "Node list: $SLURM_NODELIST"
 
 export PYTHONPATH=$(pwd)
 
-torchrun --nproc_per_node=2 --master-port=29503 aloe_scripts/train.py \
+torchrun --nproc_per_node=3 --master-port=29502 aloe_scripts/train.py \
   --task clevrer_vqa \
-  --params slotformer/clevrer_vqa/configs/aloe_clevrer_params-rollout.py \
+  --params slotformer/clevrer_vqa/configs/aloe_clevrer_params.py \
+  --exp_name exp85 \
+  --out_dir /cs/data/people/hnam16/aloe_checkpoint \
   --fp16 --ddp --cudnn

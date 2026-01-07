@@ -24,7 +24,6 @@ rollout:
   rollout_batch_size: 64
   rollout_only: false
   rollout_checkpoint: null
-
 output_model_name: causal_world_model
 training_type: video  # options: video, wm
 
@@ -56,7 +55,8 @@ dinowm:
   action_embed_dim: 10
 
 # Masked Slot Predictor Configuration
-num_masked_slots: 2  # M: number of slots to mask during training
+num_masked_blocks: 2  # M: number of slots to mask during training
+mask_ratio: 0.5     # N: target masking ratio
 
 predictor:
   depth: 6

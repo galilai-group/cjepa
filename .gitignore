@@ -5,8 +5,8 @@ eval_results/**
 temp/*
 **/*.ckpt
 **/*.mp4
-**vjepa**
 outputs/*
+testfiles/*
 
 # logs / vscode
 **.out

@@ -48,10 +48,13 @@ def main(params):
     # create checkpoint dir
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     if args.exp_name is None:
-        exp_name = os.path.basename(args.params) + '_' + ts + f"_aloeLR{params.lr}"
+        exp_name = os.path.basename(args.params) + '_' + ts + f"_LR{params.lr}"
     else:
-        exp_name = args.exp_name  + '_' + ts + f"_aloeLR{params.lr}"
-    info = params.slots_root.split('/')[-1][:-4]
+        exp_name = args.exp_name  + '_' + ts + f"_LR{params.lr}"
+    if 'aloe' in args.params:
+        info = params.slots_root.split('/')[-1][:-4]
+    elif 'savi' in args.params:
+        info = 'savi'
     ckp_path = os.path.join(args.out_dir, exp_name, info)
 
     print(f'INFO: local rank is {args.local_rank}, use_ddp={args.ddp}')

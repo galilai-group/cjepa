@@ -87,7 +87,7 @@ def test(model, test_loader):
             else:
                 q_list[flag]['choices'] += choice_lst
     name = args.weight.split('/')[-1].split('.')[0]
-    save_path =  f'./CLEVRER_{name}.json'
+    save_path =  f'./{name}_testfile.json'
     dump_obj(results, save_path)
 
 
