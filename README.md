@@ -149,6 +149,13 @@ This will give you
           └──0_pixels.mp4 ...
 ```
 
+## 2.5 Generate randomly-moving PushT data (if needed)
+```
+PYTHONPATH=. python dataset/pusht/pusht_all_moving_videogen.py \
+    --num_videos 10000 \
+    --output_dir my_dataset \
+```
+
 # 3. Training and WM-checkpoints
 
 ## 3.1 How to Run
@@ -246,6 +253,3 @@ sbatch script/pusht/run_causalwm_AP_node.sh
   ```
   sbatch scripts/run_aloe_rollout.sh
   ```
-
-  
-  

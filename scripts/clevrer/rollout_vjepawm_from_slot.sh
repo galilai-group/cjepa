@@ -16,6 +16,8 @@ export PYTHONPATH=$(pwd)
 export CKPTPATH='/cs/data/people/hnam16/.stable_worldmodel/95p_final_predictor.ckpt'
 export SLOTPATH="/cs/data/people/hnam16/data/modified_extraction/clevrer_slots_step\=100000_weight03_lr1e-4_clevrer.pkl"
 
+# @quentin Change mask_ratio to 0.25 for 91p, 0.5 for 94p, 0.75 for 95p in the below command accordingly!
+# @quentin You will the same SLOTHPATH, and you used the sameone before! 
 
 python train/train_vjepawm_from_clevrer_slot.py \
     rollout.rollout_only=true \
@@ -32,7 +34,7 @@ python train/train_vjepawm_from_clevrer_slot.py \
     predictor.heads=16 \
     embedding_dir=$SLOTPATH \
     predictor_lr=5e-4 \
-    num_masked_blocks=4 \
+    num_masked_blocks=2 \
     mask_ratio=0.75
 
 
