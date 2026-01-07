@@ -251,7 +251,7 @@ class MaskedSlotPredictor(nn.Module):
         
         return x_masked, torch.from_numpy(mask_indices).to(x.device), masked_blocks
     
-    def forward(self, x, return_mask_info=True):
+    def forward(self, x):
         """
         Single-pass transformer prediction using causal masking (Option 1).
         
@@ -292,19 +292,37 @@ class MaskedSlotPredictor(nn.Module):
         
         # Apply output projection
         output = self.to_out(output)  # (B, T+num_pred, S, D)
-        
-        if self.causal_mask_predict:
-            # Predict both masked slots and future: return full output
-            result = output
-        else:
-            # Only predict future (exclude history timesteps)
-            result = output[:, T:, :, :]  # (B, num_pred, S, D)
-        
-        if return_mask_info:
-            # Return (output, mask_indices, num_history_frames)
-            return output, mask_indices
-        else:
-            return output[:, T:, :, :]
     
+
+        return output, mask_indices
+
+    
+    @torch.no_grad()
     def inference(self, x):
-        return self.forward(x, return_mask_info=False)
+        B, T, S, D = x.shape
+        
+        # Create full sequence: history (masked) + future (placeholder zeros)
+        # Shape: (B, T + num_pred, S, D)
+        future_placeholder = torch.zeros(B, self.num_pred, S, D, device=x.device, dtype=x.dtype)
+        x_full = torch.cat([x, future_placeholder], dim=1)  # (B, T+num_pred, S, D)
+        
+        # Add temporal positional embedding BEFORE flattening
+        # time_pos_embedding: (1, T+num_pred, D) -> broadcast to (1, T+num_pred, 1, D)
+        x_with_pos = x_full + self.time_pos_embedding[:, :T+self.num_pred, :].unsqueeze(2)  # (B, T+num_pred, S, D)
+        x_with_pos = self.dropout(x_with_pos)
+        
+        # Flatten: (B, T+num_pred, S, D) -> (B, (T+num_pred)*S, D)
+        x_flat = rearrange(x_with_pos, "b t s d -> b (t s) d")
+        
+        # Single transformer pass with causal attention
+        # The transformer's causal mask ensures each position only attends to previous positions
+        # This allows the model to predict future frames in one pass
+        x_transformed = self.transformer(x_flat)  # (B, (T+num_pred)*S, D)
+        
+        # Unflatten back: (B, (T+num_pred)*S, D) -> (B, T+num_pred, S, D)
+        output = rearrange(x_transformed, "b (t s) d -> b t s d", t=T+self.num_pred, s=S)
+        
+        # Apply output projection
+        output = self.to_out(output)  # (B, T+num_pred, S, D)
+        return output[:, T:, :, :]
+    

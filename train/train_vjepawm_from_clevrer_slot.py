@@ -423,7 +423,10 @@ def run(cfg):
     cache_dir = swm.data.utils.get_cache_dir() if cfg.cache_dir is None else cfg.cache_dir
 
     # Setup wandb (only on main process)
-    wandb_logger = setup_wandb(cfg, rank)
+    if not cfg.rollout.rollout_only:
+        wandb_logger = setup_wandb(cfg, rank)
+    else:
+        wandb_logger = None
 
     # Get data
     train_loader, val_loader, data, train_sampler = get_data(cfg, is_ddp, world_size, rank)
@@ -479,7 +482,7 @@ def run(cfg):
 
         # Save rollout data
         embedding_path = Path(cfg.embedding_dir)
-        rollout_filename = f"rollout_{str(embedding_path.name)[:-4]}_lr{cfg.predictor_lr}_mask{cfg.num_masked_slots}.pkl"
+        rollout_filename = f"rollout_{str(embedding_path.name)[:-4]}_lr{cfg.predictor_lr}_mask{cfg.num_masked_blocks}_ratio{cfg.mask_ratio}.pkl"
         rollout_path = embedding_path.parent / rollout_filename
 
         with open(rollout_path, "wb") as f:
