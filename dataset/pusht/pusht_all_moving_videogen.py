@@ -265,8 +265,65 @@ class MovingObjectsVideoGenerator:
             points = [(int(v.x), int(v.y)) for v in vertices]
             pygame.draw.polygon(surface, shape.color, points)
 
-    def render_frame(self, background_color=(255, 255, 255)):
-        """Render the current state to a frame."""
+    def _add_video_realism(self, img, jpeg_quality=85):
+        """Add JPEG compression and noise to make video look realistic.
+        
+        This simulates realistic video compression and sensor noise to match
+        actual video data like PushT which has significant pixel variation.
+        
+        Args:
+            img: RGB image array (H, W, 3)
+            jpeg_quality: JPEG quality level (0-100, lower = more artifacts)
+        
+        Returns:
+            Modified image with realistic video artifacts
+        """
+        img_uint8 = img.astype(np.uint8)
+        
+        # 1. Simulate JPEG compression by encoding and decoding multiple times
+        # Multiple passes create more realistic block artifacts
+        img_compressed = img_uint8
+        for _ in range(2):  # Double-encode for stronger artifacts
+            _, jpeg_data = cv2.imencode('.jpg', cv2.cvtColor(img_compressed, cv2.COLOR_RGB2BGR), 
+                                         [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality])
+            img_compressed = cv2.imdecode(jpeg_data, cv2.IMREAD_COLOR)
+            img_compressed = cv2.cvtColor(img_compressed, cv2.COLOR_BGR2RGB)
+        
+        # 2. Add significant Gaussian noise to match real video grain
+        # Real camera sensor noise is ~3-8 units (std dev) on pixel values
+        # This creates the 10-20 unit variation we see in actual PushT data
+        noise_level = self.rng.normal(0, 4.0, img_compressed.shape)  # Increased from 1.5 to 4.0
+        img_noisy = np.clip(img_compressed.astype(np.float32) + noise_level, 0, 255)
+        
+        # 3. Add spatial correlation to noise (more realistic than pure Gaussian)
+        # Slight blur of noise creates correlated pixel patterns like real video
+        kernel_size = 3
+        img_noisy_blur = cv2.GaussianBlur(img_noisy.astype(np.uint8), (kernel_size, kernel_size), 0.7)
+        # Mix original noisy with slightly blurred version
+        img_noisy = 0.6 * img_noisy + 0.4 * img_noisy_blur
+        
+        # 4. Add per-channel color jitter for more variation
+        # Camera sensors have different noise characteristics per channel
+        color_jitter = self.rng.normal(1.0, 0.015, 3)  # Increased from 0.005 to 0.015 (~1.5%)
+        img_jittered = img_noisy * color_jitter[np.newaxis, np.newaxis, :]
+        img_jittered = np.clip(img_jittered, 0, 255)
+        
+        # 5. Add small amount of salt-and-pepper-like noise for additional variation
+        # This creates occasional outlier values like in real data
+        noise_mask = self.rng.random(img_jittered.shape) < 0.001  # 0.1% of pixels
+        salt_pepper = self.rng.choice([0, 255], size=img_jittered.shape)
+        img_jittered = np.where(noise_mask, salt_pepper, img_jittered)
+        
+        return np.clip(img_jittered, 0, 255).astype(np.uint8)
+
+    def render_frame(self, background_color=(255, 255, 255), add_noise=True, jpeg_quality=85):
+        """Render the current state to a frame with optional noise and compression.
+        
+        Args:
+            background_color: RGB tuple for background
+            add_noise: If True, add Gaussian noise to simulate video grain
+            jpeg_quality: JPEG quality (0-100) to simulate compression artifacts
+        """
         canvas = pygame.Surface((self.window_size, self.window_size))
         canvas.fill(background_color)
 
@@ -278,6 +335,10 @@ class MovingObjectsVideoGenerator:
         # Convert to numpy array and resize
         img = np.transpose(np.array(pygame.surfarray.pixels3d(canvas)), axes=(1, 0, 2))
         img = cv2.resize(img, (self.render_size, self.render_size))
+
+        # Add noise to simulate realistic video
+        if add_noise:
+            img = self._add_video_realism(img, jpeg_quality=jpeg_quality)
 
         return img
 
@@ -332,12 +393,16 @@ class MovingObjectsVideoGenerator:
         main_T_color="LightSlateGray",
         sub_T_color="LightSlateGray",
         enable_collision=True,
+        add_noise=True,
+        jpeg_quality=85,
     ):
         """Generate a video of moving objects.
 
         Args:
             enable_collision: If True, circle and main_T undergo elastic collision.
                             If False, all objects pass through each other.
+            add_noise: If True, add JPEG compression and noise to simulate realistic video.
+            jpeg_quality: JPEG quality (0-100) for compression artifacts (lower = more artifacts).
         """
         # Setup physics space
         self.setup_space()
@@ -358,7 +423,11 @@ class MovingObjectsVideoGenerator:
 
         for frame_idx in range(num_frames):
             # Render current state
-            frame = self.render_frame(background_color=background_color)
+            frame = self.render_frame(
+                background_color=background_color,
+                add_noise=add_noise,
+                jpeg_quality=jpeg_quality
+            )
             frames.append(frame)
 
             # Step physics for next frame
@@ -493,7 +562,7 @@ def main():
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="/cs/data/people/hnam16/data/pusht_independent_videos",
+        default="/cs/data/people/hnam16/data/pusht_independent_videos_with_noise",
         help="Output directory for generated videos"
     )
     parser.add_argument(
@@ -523,7 +592,7 @@ def main():
     parser.add_argument(
         "--max_speed",
         type=float,
-        default=300,
+        default=250,
         help="Maximum object speed (pixels/second)"
     )
     parser.add_argument(
@@ -556,8 +625,29 @@ def main():
         default=False,
         help="If set, circle and main_T undergo elastic collision. Otherwise all objects pass through each other."
     )
+    parser.add_argument(
+        "--add_noise",
+        action="store_true",
+        default=True,
+        help="If set, add JPEG compression and noise to simulate realistic video (default: True)."
+    )
+    parser.add_argument(
+        "--no_noise",
+        action="store_true",
+        default=False,
+        help="If set, disable noise/compression (generates clean synthetic video)."
+    )
+    parser.add_argument(
+        "--jpeg_quality",
+        type=int,
+        default=85,
+        help="JPEG quality level (0-100, lower = more compression artifacts). Default 85 mimics typical video compression."
+    )
 
     args = parser.parse_args()
+
+    # Handle noise flags
+    add_noise = not args.no_noise and args.add_noise
 
     # Create output directory
     output_dir = Path(args.output_dir)
@@ -568,6 +658,9 @@ def main():
     print(f"Resolution: {MovingObjectsVideoGenerator.WINDOW_SIZE}x{MovingObjectsVideoGenerator.WINDOW_SIZE} -> {MovingObjectsVideoGenerator.RENDER_SIZE}x{MovingObjectsVideoGenerator.RENDER_SIZE}")
     print(f"Circle radius: {MovingObjectsVideoGenerator.CIRCLE_RADIUS}, Tee scale: {MovingObjectsVideoGenerator.TEE_SCALE}")
     print(f"Collision between circle and main_T: {'Enabled' if args.enable_collision else 'Disabled'}")
+    print(f"Video realism (JPEG compression + noise): {'Enabled' if add_noise else 'Disabled'}")
+    if add_noise:
+        print(f"  JPEG quality: {args.jpeg_quality} (lower = more artifacts)")
     print(f"Base seed: {args.base_seed}")
     print("-" * 60)
 
@@ -598,6 +691,8 @@ def main():
             main_T_color=args.main_T_color,
             sub_T_color=args.sub_T_color,
             enable_collision=args.enable_collision,
+            add_noise=add_noise,
+            jpeg_quality=args.jpeg_quality,
         )
 
         # Clean up

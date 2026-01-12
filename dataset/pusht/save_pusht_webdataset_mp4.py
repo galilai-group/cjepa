@@ -40,7 +40,7 @@ def make_shards(input_dir, split, out_dir, maxcount=512):
     print(f"[OK] Wrote {written} samples into shards at {out_dir}")
 
 # Example:
-# make_shards("/users/hnam16/scratch/.stable_worldmodel/pusht_expert_train_video/videos", "train", "/users/hnam16/scratch/data/pusht_wds_mp4/train", maxcount=512)
-make_shards("/users/hnam16/scratch/.stable_worldmodel/pusht_expert_val_video/videos", "val", "/users/hnam16/scratch/data/pusht_wds_mp4/validation", maxcount=10)
+make_shards("/cs/data/people/hnam16/data/pusht_independent_videos_with_noise/train", "train", "/cs/data/people/hnam16/data/pusht_ind_noise_wds_mp4/train", maxcount=512)
+# make_shards("/cs/data/people/hnam16/data/pusht_independent_videos_with_noise/val", "val", "/cs/data/people/hnam16/data/pusht_ind_noise_wds_mp4/validation", maxcount=128)
 
 

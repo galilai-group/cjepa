@@ -6,6 +6,7 @@ from .phyre import build_phyre_dataset, build_phyre_slots_dataset, \
     build_phyre_rollout_slots_dataset
 from .pusht import build_pusht_dataset as build_pusht_dataset, \
     build_pusht_slots_dataset as build_pusht_slots_dataset
+from .pusht_syn import build_pusht_syn_dataset, build_pusht_syn_slots_dataset
 
 def build_dataset(params, val_only=False):
     dst = params.dataset

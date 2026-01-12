@@ -49,6 +49,7 @@ def run(cfg: DictConfig):
     # create world environment
     cfg.world.max_episode_steps = 2 * cfg.eval.eval_budget
     world = swm.World(**cfg.world, image_shape=(224, 224), render_mode="rgb_array")
+    cache_dir = cfg.cache_dir or swm.data.utils.get_cache_dir()
 
     # create the transform
     transform = {
@@ -56,7 +57,7 @@ def run(cfg: DictConfig):
         "goal": img_transform(),
     }
 
-    dataset_path = Path(cfg.cache_dir or swm.data.utils.get_cache_dir(), cfg.eval.dataset_name)
+    dataset_path = Path(cache_dir, cfg.eval.dataset_name)
     dataset = datasets.load_from_disk(dataset_path).with_format("numpy")
     ep_indices, _ = np.unique(dataset["episode_idx"][:], return_index=True)
 
@@ -74,7 +75,7 @@ def run(cfg: DictConfig):
     }
 
     # -- run evaluation
-    model = swm.policy.AutoCostModel(cfg.policy)
+    model = swm.policy.AutoCostModel(cfg.policy, cache_dir)
     model = model.to("cuda")
     model = model.eval()
     model.requires_grad_(False)
@@ -108,11 +109,14 @@ def run(cfg: DictConfig):
 
     if cfg.eval.data_format == "frame":
         dataset = swm.data.FrameDataset(
-            cfg.eval.dataset_name
+            cfg.eval.dataset_name,
+            cache_dir=cache_dir
+
         )
     elif cfg.eval.data_format == "video":
         dataset = swm.data.VideoDataset(
-            cfg.eval.dataset_name
+            cfg.eval.dataset_name,
+            cache_dir=cache_dir
         )
     else:
         raise NotImplementedError(f"Data format '{cfg.eval.data_format}' not supported.")

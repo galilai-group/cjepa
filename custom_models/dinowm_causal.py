@@ -55,7 +55,7 @@ class CausalWM(torch.nn.Module):
     ):
         assert target not in info, f"{target} key already in info_dict"
 
-        emb_keys = [action_key, proprio_key]
+        emb_keys = [proprio_key, action_key]
         prefix = prefix or ""
 
         # == pixels embeddings
@@ -81,7 +81,7 @@ class CausalWM(torch.nn.Module):
         embedding = pixels_embed
         info[f"pixels_{target}"] = pixels_embed
 
-        for key in emb_keys:
+        for key in [proprio_key, action_key]: # always in this order
             if key == "proprio":
                 extr_enc = self.proprio_encoder
             elif key == "action":
@@ -143,7 +143,7 @@ class CausalWM(torch.nn.Module):
 
         # == extra embeddings
         start_dim = pixel_dim
-        for i, key in enumerate(["action", "proprio"]):
+        for i, key in enumerate(["proprio", "action"]):
             dim = extra_dims[i]
             extra_emb = embedding[..., start_dim : start_dim + dim]
             split_embed[f"{key}_embed"] = extra_emb[:, :, :, 0]  # all patches are the same
@@ -152,39 +152,88 @@ class CausalWM(torch.nn.Module):
         return split_embed
 
     def replace_action_in_embedding(self, embedding, act):
-        """Replace the action embeddings in the latent state z with the provided actions."""
+        """Replace the action embeddings in the latent state z with the provided actions.
+        
+        Args:
+            embedding: (B, N, T, P, d) - 5D tensor with action at the end of d
+            act: (B, N, T, action_dim) - raw actions to inject
+        Returns:
+            new_embedding: (B, N, T, P, d)
+        """
         assert self.action_encoder is not None, "No action encoder defined in the model."
         n_patches = embedding.shape[3]
         B, N = act.shape[:2]
         act_flat = rearrange(act, "b n ... -> (b n) ...")
-        z_act = self.action_encoder(act_flat)  # (B, T, A_emb)
+        z_act = self.action_encoder(act_flat)  # (B*N, T, A_emb)
         action_dim = z_act.shape[-1]
         act_tiled = repeat(z_act.unsqueeze(2), "(b n) t 1 a -> b n t p a", b=B, n=N, p=n_patches)
-        # z (B, N, T, P, d) with d = dim + proprio_emb_dim + action_emb_dim
-        # replace the last 'action_emb_dim' dims of z with the action embeddings
+        # z (B, N, T, P, d) with d = dim + extra_dims
+        # determine where action starts in the embedding
+        extra_dim = sum(encoder.emb_dim for encoder in [self.proprio_encoder, self.action_encoder])
+        pixel_dim = embedding.shape[-1] - extra_dim
+
+        start = pixel_dim + self.proprio_encoder.emb_dim
+        # for key, encoder in self.extra_encoders.items():
+        #     if key == "action":
+        #         break
+        #     start += encoder.emb_dim
+
+        prefix = embedding[..., :start]
+        suffix = embedding[..., start + action_dim :]
+
+        new_embedding = torch.cat([prefix, act_tiled, suffix], dim=-1)
+
+        # embedding[..., start : start + action_dim] = act_tiled
+        # return embedding
+        return new_embedding
+
+    def _replace_action_flat(self, embedding, actions):
+        """Replace actions in embedding for flattened batch (no N dimension).
+        
+        Args:
+            embedding: (B, T, S, D) - 4D tensor with action at the end of D
+            actions: (B, T, action_dim) - raw actions to inject
+        Returns:
+            new_embedding: (B, T, S, D)
+        """
+        assert self.action_encoder is not None, "No action encoder defined in the model."
+        n_patches = embedding.shape[2]
+        act_embed = self.action_encoder(actions)  # (B, T, action_embed_dim)
+        action_dim = act_embed.shape[-1]
+        act_tiled = repeat(act_embed.unsqueeze(2), "b t 1 d -> b t p d", p=n_patches)
         new_embedding = torch.cat([embedding[..., :-action_dim], act_tiled], dim=-1)
         return new_embedding
 
     def rollout(self, info, action_sequence):
         """Rollout the world model given an initial observation and a sequence of actions.
+        
+        Non-autoregressive rollout for MaskedSlotPredictor:
+        - Predicts pred_frames at a time (e.g., 3 frames per call)
+        - If horizon > pred_frames, reconstructs history using predicted frames
+        - Repeats until all required future steps are predicted
 
         Params:
-        obs_start: n current observations (B, n, C, H, W)
-        actions: current and predicted actions (B, n+t, action_dim)
+            info: dict containing 'pixels', 'proprio', etc.
+                  pixels shape: (B, N, T_history, C, H, W) where N = num_candidates
+                  - T_history comes from world.history_size
+            action_sequence: (B, N, horizon, action_dim * action_block)
+                  - This contains ONLY future actions (no history)
+                  - horizon = plan_config.horizon (number of planning steps)
+                  - Each action covers action_block environment steps
 
         Returns:
-        z_obs: dict with latent observations (B, n+t+1, n_patches, D)
-        z: predicted latent states (B, n+t+1, n_patches, D)
+            info: dict with 'predicted_embedding' of shape (B, N, T_history + horizon, S, D)
         """
 
         assert "pixels" in info, "pixels not in info_dict"
-        n_obs = info["pixels"].shape[2]
         proprio_key = "proprio" if "proprio" in info else None
-        emb_keys = [proprio_key] if proprio_key in info else []        
+        emb_keys = [proprio_key] if proprio_key in info else []
+        
         # == add action to info dict
+
+        n_obs = info["pixels"].shape[2]
         act_0 = action_sequence[:, :, :n_obs]
         info["action"] = act_0
-
         # check if we have already computed the initial embedding for this state
         if (
             hasattr(self, "_init_cached_info")
@@ -197,8 +246,7 @@ class CausalWM(torch.nn.Module):
             init_info_dict = {}
             for k, v in info.items():
                 if torch.is_tensor(v):
-                    # goal is the same across samples so we will only embed it once
-                    init_info_dict[k] = info[k][:, 0]  # (B, 1, ...)
+                    init_info_dict[k] = info[k][:, 0]  # (B, T_history, ...)
 
             init_info_dict = self.encode(
                 init_info_dict,
@@ -230,9 +278,9 @@ class CausalWM(torch.nn.Module):
             init_info_dict = {k: v.detach().clone() if torch.is_tensor(v) else v for k, v in init_info_dict.items()}
             self._init_cached_info = init_info_dict
 
+        # Get encoded history
         info["embed"] = init_info_dict["embed"]
         info["pixels_embed"] = init_info_dict["pixels_embed"]
-
         for key in emb_keys:
             info[f"{key}_embed"] = init_info_dict[f"{key}_embed"]
 
@@ -249,31 +297,57 @@ class CausalWM(torch.nn.Module):
         z = info["embed"]
         B, N = z.shape[:2]
 
+
         # we flatten B and N to process all candidates in a single batch in the predictor
         z_flat = rearrange(z, "b n ... -> (b n) ...").clone()
         act_pred_flat = rearrange(act_pred, "b n ... -> (b n) ...")
 
-        for t in range(n_steps):
-            # predict the next state
-            pred_embed = self.predict(z_flat[:, -self.history_size :])[:, -1:]  # (B*N, 1, P, D)
 
-            # add corresponding action to new embedding
-            new_action = act_pred_flat[None, :, t : t + 1, :]  # (1, B*N, 1, action_dim)
-            new_embed = self.replace_action_in_embedding(pred_embed.unsqueeze(0), new_action)[0]
+        # Collect all predictions
+        current_step = 0
 
-            # append new embedding to the sequence
+        while current_step < n_steps:
+            # Get current history window (last history_size frames)
+            history_input = z_flat[:, -self.history_size:]  # (B*N, history_size, S, D)
+
+            # Predict pred_frames future frames at once
+            pred_embed = self.predict(history_input, use_inference_function=True)  # (B*N, pred_frames, S, D)
+            pred_frames = pred_embed.shape[1]
+
+            # How many steps to use from this prediction
+            steps_this_round = min(pred_frames, n_steps - current_step)
+
+            # Inject actions into predicted frames
+            new_action = act_pred_flat[None, :, current_step:current_step + steps_this_round, :]  # (B*N, steps_this_round, action_dim)
+            
+            # Only replace action in the frames we'll actually use
+            pred_to_use = pred_embed[:, :steps_this_round].clone()  # (B*N, steps_this_round, S, D)
+            new_embed = self.replace_action_in_embedding(pred_to_use.unsqueeze(0), new_action)[0]
+
+            # Update z_flat by appending predictions (for next iteration's history)
             z_flat = torch.cat([z_flat, new_embed], dim=1)
 
-        # predict the last state (n+t+1)
-        pred_embed = self.predict(z_flat[:, -self.history_size :])[:, -1:]  # (B, 1, P, D)
-        z_flat = torch.cat([z_flat, pred_embed], dim=1)
+            current_step += steps_this_round
+
+        # Predict one more step without action (final state after all actions)
+        # This matches the original behavior of predicting n+t+1 states for n+t actions
+        final_history = z_flat[:, -self.history_size:]
+        final_pred = self.predict(final_history, use_inference_function=True)[:, :1]  # Just first predicted frame
+        z_flat = torch.cat([z_flat, final_pred], dim=1)
+
+        # Reshape back to (B, N, T_total, S, D)
         z = rearrange(z_flat, "(b n) ... -> b n ...", b=B, n=N)
+
         # == update info dict with predicted embeddings
         info["predicted_embedding"] = z
 
-        action_dim = 0 if "action_embed" not in info else info["action_embed"].shape[-1]
-        proprio_dim = 0 if "proprio_embed" not in info else info["proprio_embed"].shape[-1]
-        extra_dims = [action_dim, proprio_dim]
+        # Extract embedding components for cost computation
+        extra_dims = []
+        # proprio first
+        if self.proprio_encoder is not None:
+            extra_dims.append(info["proprio_embed"].shape[-1])
+        if self.action_encoder is not None:
+            extra_dims.append(self.action_encoder.emb_dim)
 
         splitted_embed = self.split_embedding(z, extra_dims)
         info.update({f"predicted_{k}": v for k, v in splitted_embed.items()})
@@ -289,7 +363,7 @@ class CausalWM(torch.nn.Module):
         for key in emb_keys + ["pixels"]:
             preds = info_dict[f"predicted_{key}_embed"]
             goal = info_dict[f"{key}_goal_embed"]
-            cost = cost + F.mse_loss(preds[:, :, -1:], goal, reduction="none").mean(dim=tuple(range(2, preds.ndim)))
+            cost = cost + F.mse_loss(preds[:, :, -1:], goal[:, :, -1:], reduction="none").mean(dim=tuple(range(2, preds.ndim)))
         return cost
 
     def get_cost(self, info_dict: dict, action_candidates: torch.Tensor):

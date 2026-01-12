@@ -63,7 +63,7 @@ def read_video(video_path, num_frameskip, start_idx=0, return_idx=False, device=
         return frames
 
 @torch.no_grad()
-def extract_video_slots_videosaur(model, dataset, chunk_len=None, num_frameskip=2, device='cuda'):
+def extract_video_slots_videosaur(model, dataset, chunk_len=None, num_frameskip=1, device='cuda'):
     """Extract slots for each video in `dataset`.
 
     Args:
@@ -135,9 +135,9 @@ def process_videosaur(model, params, args):
     chunk_len = None  # getattr(params, 'input_frames', None)
 
     # gather file lists
-    train_set = glob.glob(os.path.join(args.data_root, "clevrer_train/videos/*.mp4"))
-    val_set = glob.glob(os.path.join(args.data_root, "clevrer_val/videos/*.mp4"))
-    test_set = glob.glob(os.path.join(args.data_root, "clevrer_test/videos/*.mp4")) 
+    train_set = glob.glob(os.path.join(args.data_root, f"{args.dataset}_train/videos/*.mp4"))
+    val_set = glob.glob(os.path.join(args.data_root, f"{args.dataset}_val/videos/*.mp4"))
+    test_set = glob.glob(os.path.join(args.data_root, f"{args.dataset}_test/videos/*.mp4")) 
     # also extract test_set for CLEVRER
     test_slots = None
     if len(test_set) > 0:
@@ -202,7 +202,7 @@ def main():
     parser.add_argument('--num_frameskip', default=1, type=int)
     parser.add_argument('--limit', default=None, type=int, help='limit number of videos per split (for smoke testing)')
     parser.add_argument('--smoke', action='store_true', help='run a smoke test that skips model and uses fake slots to test save/validation logic')
-
+    parser.add_argument('--dataset', default='clevrer', type=str, help='dataset name to match save_path')
     args = parser.parse_args()
 
     if args.params.endswith('.py'):
