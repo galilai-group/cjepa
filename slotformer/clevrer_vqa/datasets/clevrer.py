@@ -355,11 +355,19 @@ class CLEVRERSlotsVQADataset(CLEVRERVQADataset):
         self.load_frames = False
         self.shuffle_obj = shuffle_obj
 
+        if 'video' in list(self.video_slots.keys())[0]:
+            self.format = 'video'
+        elif 'pixel' in list(self.video_slots.keys())[0]:
+            self.format = 'pixel'
+
     def _get_slots(self, idx, start_idx):
         """Extract and potentially shuffle object embs."""
         question, _ = self._get_question_dict(idx)
-        orig_vid_num =  int(question['video_filename'].split('_')[1].split('.')[0])
-        video_fn = f'{orig_vid_num}_pixels.mp4'
+        if self.format == 'pixel':
+            orig_vid_num =  int(question['video_filename'].split('_')[1].split('.')[0])
+            video_fn = f'{orig_vid_num}_pixels.mp4'
+        elif self.format == 'video':
+            video_fn = question['video_filename']
 
         assert video_fn in self.video_slots.keys()
         embs = self.video_slots[video_fn]  # [T, N, C]
