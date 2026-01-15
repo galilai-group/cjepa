@@ -3,7 +3,7 @@ experiment_name: pusht_dinov2
 
 globals:
   NUM_SLOTS: 4
-  SLOT_DIM: 64
+  SLOT_DIM: 128
   DINO_MODEL: vit_small_patch14_dinov2.lvd142m
   FEAT_DIM: 384
   NUM_PATCHES: 196
@@ -129,16 +129,18 @@ model:
 val_metrics: null
 
 dataset:
-  train_shards: "/users/hnam16/scratch/data/pusht_wds_mp4/train/pusht-train-{000000..000036}.tar"
-  val_shards: "/users/hnam16/scratch/data/pusht_wds_mp4/validation/pusht-val-{000000..000002}.tar"
+  # train_shards: "/cs/data/people/hnam16/data/pusht_wds_mp4/train/pusht-train-{000000..000036}.tar"
+  # val_shards: "/cs/data/people/hnam16/data/pusht_wds_mp4/validation/pusht-val-{000000..000002}.tar"
+  train_shards: "/cs/data/people/hnam16/data/pusht_ind_noise_wds_mp4/train/pusht-train-{000000..000017}.tar"
+  val_shards: "/cs/data/people/hnam16/data/pusht_ind_noise_wds_mp4/validation/pusht-val-{000000..000007}.tar"
   batch_size: ${globals.BATCH_SIZE_PER_GPU}
   val_batch_size: ${globals.BATCH_SIZE_PER_GPU}
   val_size: 20
   num_workers: 5 # increase this if you have more CPU cores
   num_val_workers: 4
   train_pipeline:
-    chunk_size: 4
-    num_frameskip: 5    # keep every 2nd frame: 0,2,4,...
+    chunk_size: 6
+    num_frameskip: 2    # keep every 2nd frame: 0,2,4,...
     keys: [video]
     sample_one_chunk_per_video: true
     transforms:
@@ -150,7 +152,7 @@ dataset:
   val_pipeline:
     use_chunks: true
     chunk_size: 6
-    num_frameskip: 5 
+    num_frameskip: 2 
     keys: [video]
     transforms:
       name: clevrer_val

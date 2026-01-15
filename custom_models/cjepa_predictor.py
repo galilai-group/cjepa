@@ -197,17 +197,18 @@ class MaskedSlotPredictor(nn.Module):
         """
         B, T_hist, S, D = x.shape
         T_pred = self.pred_frames
-        T_total = self.total_frames
+        T_total = T_hist + T_pred
+        inf_time_pos_embed = self.time_pos_embed[:, -T_total:, :, :]
         
         # 1. Anchor Query (t=0)
         anchors = x[:, 0, :, :]
         anchor_queries = self.id_projector(anchors) # (B, S, D)
         
         # 2. History Part  (NO MASK)
-        input_history = x + self.time_pos_embed[:, :T_hist, :, :]
+        input_history = x + inf_time_pos_embed[:, :T_hist, :, :]
         
         tokens_grid = self.mask_token.expand(B, T_pred, S, D)
-        pos_grid = self.time_pos_embed[:, T_hist:, :, :].expand(B, T_pred, S, D)
+        pos_grid = inf_time_pos_embed[:, T_hist:T_total, :, :].expand(B, T_pred, S, D)
         anchor_grid = anchor_queries.unsqueeze(1).expand(B, T_pred, S, D)
         input_future = tokens_grid + pos_grid + anchor_grid
         full_input = torch.cat([input_history, input_future], dim=1)

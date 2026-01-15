@@ -29,9 +29,10 @@ from omegaconf import OmegaConf
 from torch.nn import functional as F
 from einops import rearrange, repeat
 from custom_models.cjepa_predictor import MaskedSlotPredictor
-from custom_models.dinowm_causal import CausalWM, Embedder
-from videosaur.videosaur import models
-
+from custom_models.dinowm_causal_savi import CausalWM_Savi
+from slotformer.base_slots.models import build_model
+import sys
+import importlib
 import pickle as pkl
 import numpy as np
 
@@ -443,25 +444,28 @@ def get_world_model(cfg):
         
         return batch
     
-    # Build the videosaur model to get encoder, slot_attention, initializer
-    # These will be frozen and serve as placeholders for checkpoint compatibility
-    model = models.build(cfg.model, cfg.dummy_optimizer, None, None)
-    encoder = model.encoder
-    slot_attention = model.processor
-    initializer = model.initializer
-    
-    # Slot dimension from config
-    slot_dim = cfg.videosaur.SLOT_DIM
-    num_slots = cfg.videosaur.NUM_SLOTS
+    if cfg.savi.params.endswith('.py'):
+        params = cfg.savi.params[:-3]
+    sys.path.append(os.path.dirname(params))
+    params = importlib.import_module(os.path.basename(params))
+    params = params.SlotFormerParams()
+    model = build_model(params)
+    model.load_state_dict(
+        torch.load(cfg.savi.weight, map_location='cpu')['state_dict'])
+    model.testing = True  # we just want slots
+
+    num_patches = cfg.savi.NUM_SLOTS
+    embedding_dim = cfg.savi.SLOT_DIM
+
     
     # Total embedding dimension (slot + action + proprio)
-    embedding_dim = slot_dim + cfg.dinowm.proprio_embed_dim + cfg.dinowm.action_embed_dim
+    embedding_dim += cfg.dinowm.proprio_embed_dim + cfg.dinowm.action_embed_dim
     
-    logging.info(f"Num slots: {num_slots}, Slot dim: {slot_dim}, Total embedding dim: {embedding_dim}")
-    
+    logging.info(f"Patches: {num_patches}, Embedding dim: {embedding_dim}")    
+
     # Build masked slot predictor (same as train_causalwm.py)
     predictor = MaskedSlotPredictor(
-        num_slots=num_slots,
+        num_slots=num_patches,
         slot_dim=embedding_dim,
         history_frames=cfg.dinowm.history_size,
         pred_frames=cfg.dinowm.num_preds,
@@ -482,15 +486,14 @@ def get_world_model(cfg):
     logging.info(f"Action dim: {effective_act_dim}, Proprio dim: {cfg.dinowm.proprio_dim}")
 
     # Assemble world model with frozen encoder/slot_attention for checkpoint compatibility
-    world_model = CausalWM(
-        encoder=spt.backbone.EvalOnly(encoder),
-        slot_attention=spt.backbone.EvalOnly(slot_attention),
-        initializer=spt.backbone.EvalOnly(initializer),
+    world_model = CausalWM_Savi(
+        encoder=spt.backbone.EvalOnly(model),
         predictor=predictor,
         action_encoder=action_encoder,
         proprio_encoder=proprio_encoder,
         history_size=cfg.dinowm.history_size,
         num_pred=cfg.dinowm.num_preds,
+        model_name="SAVi" if "pusht" in cfg.dataset_name else "StoSAVi",
     )
     
     # Wrap in spt.Module with separate optimizers for each trainable component
@@ -560,7 +563,7 @@ class ModelObjectCallBack(Callback):
 # ============================================================================
 # Main Entry Point
 # ============================================================================
-@hydra.main(version_base=None, config_path="../configs", config_name="config_train_causal_pusht_slot")
+@hydra.main(version_base=None, config_path="../configs", config_name="config_train_causal_pusht_slot_savi")
 def run(cfg):
     """Run training of predictor using pre-extracted slot representations."""
     

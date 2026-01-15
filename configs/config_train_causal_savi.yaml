@@ -1,0 +1,74 @@
+#output_dir: ./outputs
+
+defaults:
+  - _self_
+  - override hydra/hydra_logging: disabled
+  - override hydra/job_logging: disabled
+
+hydra:
+  output_subdir: null
+
+wandb:
+  enable: true
+  project: cjepa
+  entity: heejeong_nam-brown-university
+
+
+savi:
+  weight: /cs/data/people/hnam16/savi_pretrained/ex101_20260108_023722_LR0.0001/savi/epoch/model_24.pth
+  params: slotformer/base_slots/configs/savi_pusht_ind_params_mlp.py
+  NUM_SLOTS: 4
+  SLOT_DIM: 128
+
+monitor_rankme: false                 
+rankme_queue_length: 2048 
+
+dataset_name: clevrer
+cache_dir: "/cs/data/people/hnam16/.stable_worldmodel"
+
+output_model_name: causal_world_model
+training_type: video  # options: video, wm
+
+trainer:
+  max_epochs: 100
+  # strategy: ddp 
+  devices: auto
+  accelerator: gpu 
+  precision: 16-mixed
+  log_every_n_steps: 1
+
+batch_size: 64
+num_workers: 10
+
+seed: 42
+
+image_size: 64
+patch_size: 16
+
+n_steps: ${eval:'${dinowm.num_preds} + ${dinowm.history_size}'}
+frameskip: 3
+
+dinowm:
+  history_size: 5
+  num_preds: 3
+  proprio_dim: 4
+  proprio_embed_dim: 10
+  action_dim: 2
+  action_embed_dim: 10
+
+# Masked Slot Predictor Configuration
+num_masked_slots: 2  # M: number of slots to mask during training
+
+predictor:
+  depth: 6
+  heads: 16
+  mlp_dim: 2048
+  dim_head: 64
+  dropout: 0.1
+  emb_dropout: 0.0
+
+predictor_lr: 5e-4
+proprio_encoder_lr: 5e-4
+action_encoder_lr: 5e-4
+
+dump_object: true

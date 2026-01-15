@@ -1,1 +1,0 @@
-python -m pdb test_videowm.py checkpoint_path=./world_model_epoch_30_object.ckpt

@@ -1,18 +1,8 @@
 # checkpoint: /cs/data/people/hnam16/.stable_worldmodel/artifacts/oc-checkpoints/step=100000_weight01_lr1e-4_pusht.ckpt
-# model_config: videosaur/configs/videosaur/pusht_dinov2_hf.yml
-# n_slots: 4
-# input:
-#   path: /cs/data/people/hnam16/.stable_worldmodel/pusht_expert_val/videos/0_pixels.mp4
-#   type: video
-#   transforms:
-#     dataset_type: video
-#     input_size: 196
-# output:
-#   save_path: result_video/pusht_0_pixels_1e-4_01.mp4 
 
-checkpoint: /cs/data/people/hnam16/.stable_worldmodel/artifacts/oc-checkpoints/step=100000_weight03_lr1e-4_clevrer.ckpt
-model_config: videosaur/configs/videosaur/clevrer_dinov2_hf.yml
-n_slots: 7
+checkpoint: /cs/data/people/hnam16/.stable_worldmodel/artifacts/oc-checkpoints/pushtnoise_videosaur_lr1e-4_w01_step100000.ckpt
+model_config: videosaur/configs/videosaur/pusht_dinov2_hf.yml
+n_slots: 4
 input:
   path: /cs/data/people/hnam16/.stable_worldmodel/pusht_expert_val/videos/0_pixels.mp4
   type: video
@@ -20,4 +10,5 @@ input:
     dataset_type: video
     input_size: 196
 output:
-  save_path: result_video/pusht_0_pixels_clevrerckpt_03_7slot.mp4
+  save_path: result_video/noisypusht_0_pixels_w01.mp4 
+
