@@ -14,8 +14,25 @@ wandb:
   entity: heejeong_nam-brown-university
 
 
+task: clevrer_vqa
+params: ???        # required (must be overridden)
+exp_name: vis
+out_dir: outputs/
+
+# checkpoint paths
+weight: ""         # load weight (optional)
+ckpt_for_decoder: /cs/data/people/hnam16/.stable_worldmodel/artifacts/oc-checkpoints/pusht_savi_101_24.pth
+ckpt_for_worldmodel: 134p_epoch_30
+
+# training / system flags
+fp16: false        # half-precision
+ddp: false         # DDP training
+cudnn: false       # cudnn benchmark
+
+# distributed
+local_rank: 0
 dataset_name: pusht_expert
-embedding_dir: '/cs/data/people/hnam16/data/modified_extraction/pusht_expert_slots_pushtnoise_videosaur_lr1e-4_w03_step=100000.pkl'
+embedding_dir: '/cs/data/people/hnam16/data/modified_extraction/pusht_savi_101.pkl'
 cache_dir: "/cs/data/people/hnam16/.stable_worldmodel"
 action_dir: '/cs/data/people/hnam16/data/modified_extraction/pusht_expert_action_meta.pkl'
 proprio_dir: '/cs/data/people/hnam16/data/modified_extraction/pusht_expert_proprio_meta.pkl'
@@ -44,7 +61,7 @@ n_steps: ${eval:'${dinowm.num_preds} + ${dinowm.history_size}'}
 frameskip: 5
 
 savi:
-  weight: /cs/data/people/hnam16/savi_pretrained/ex101_20260108_023722_LR0.0001/savi/epoch/model_24.pth
+  weight: /cs/data/people/hnam16/.stable_worldmodel/artifacts/oc-checkpoints/pusht_savi_101_24.pth
   params: slotformer/base_slots/configs/savi_pusht_ind_params_mlp.py
   NUM_SLOTS: 4
   SLOT_DIM: 128

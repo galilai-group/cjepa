@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=108videosaur
+#SBATCH --job-name=172
 #SBATCH --time=5-00:00:00
 #SBATCH --partition=gpus
 #SBATCH --ntasks=1
@@ -18,12 +18,14 @@ python videosaur/videosaur/train.py \
     videosaur/configs/videosaur/pusht_dinov2_hf.yml \
     globals.BATCH_SIZE_PER_GPU=64 \
     globals.BASE_LR=0.0001 \
-    globals.SIM_WEIGHT=0.5 \
-    globals.SIM_TEMP=0.15 \
+    globals.SIM_WEIGHT=0.25 \
+    globals.SIM_TEMP=0.25 \
     dataset.num_workers=8 \
     dataset.num_val_workers=1 \
     globals.SLOT_DIM=128 \
     dataset.val_pipeline.num_frameskip=2 \
     dataset.train_pipeline.num_frameskip=2 \
+    dataset.train_shards="/cs/data/people/hnam16/data/pusht_mixed_ind_noise_wds_mp4/train/pusht-train-{000000..000034}.tar" \
+    dataset.val_shards="/cs/data/people/hnam16/data/pusht_mixed_ind_noise_wds_mp4/validation/pusht-val-{000000..000007}.tar"
     # --continue logs/videosaur/2025-12-24-19-01-14_clevrer_dinov2  \
 

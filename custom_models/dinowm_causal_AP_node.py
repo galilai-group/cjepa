@@ -7,6 +7,8 @@ from einops import rearrange, repeat
 from torch import distributed as dist
 from torch import nn
 
+# Hungarian matching for planning
+from custom_models.custom_codes.hungarian import hungarian_cost, reorder_slots_to_match_AP
 
 class CausalWM_AP(torch.nn.Module):
     def __init__(
@@ -20,7 +22,10 @@ class CausalWM_AP(torch.nn.Module):
         decoder=None,
         history_size=3,
         num_pred=1,
+        interpolate_pos_encoding=True,
         device="cpu",
+        use_hungarian=True,          # Enable Hungarian matching for planning use_hungarian
+        hungarian_cost_type="mse",    # "mse" or "cosine"
     ):
         super().__init__()
 
@@ -34,6 +39,11 @@ class CausalWM_AP(torch.nn.Module):
         self.history_size = history_size
         self.num_pred = num_pred
         self.device = device
+        self.interpolate_pos_encoding = interpolate_pos_encoding
+        
+        # Hungarian matching settings
+        self.use_hungarian = use_hungarian
+        self.hungarian_cost_type = hungarian_cost_type
 
         decoder_scale = 16  # from vqvae
         num_side_patches = 224 // decoder_scale
@@ -44,67 +54,58 @@ class CausalWM_AP(torch.nn.Module):
         self,
         info,
         pixels_key="pixels",
+        prefix=None,
         target="embed",
         proprio_key=None,
         action_key=None,
-        return_all_slotstates=False,
-        manual_slot_state=None
+        return_last_slot=False
     ):
-        # assert target not in info, f"{target} key already in info_dict"
+        assert target not in info, f"{target} key already in info_dict"
+        emb_keys = [proprio_key, action_key]
+        prefix = prefix or ""
+
         # == pixels embeddings
         pixels = info[pixels_key].float()  # (B, T, 3, H, W)
-        # pixels = pixels.unsqueeze(1) if pixels.ndim == 4 else pixels
-
         B = pixels.shape[0]
         pixels_embed = self.encoder(pixels)#.last_hidden_state.detach() # bt, n_patches+1, d
-        # pixels_embed["backbone_features"].shape = 8, 4, 1369, 384 > each patch has 384 dim (dino)
-        # pixels_embed["features"].shape = 8, 4, 1369, 64 > each patch has 64 dim
-        # what is pixels_embed["vit_block12"] and pixels_embed["vit_block_keys12"]
         features = pixels_embed["features"]
 
-        if manual_slot_state is not None:
-            slots_initial = manual_slot_state   
+        if "prev_slot" in info:
+            slots_initial = info["prev_slot"]   
         else:
             slots_initial = self.initializer(batch_size=B) # bs x slotnum x slotfeat (8x7x64)
         processor_output = self.slot_attention(slots_initial, features)
-        if return_all_slotstates:
-            all_slot_states = processor_output["all_slot_states"].detach() # bs x nstep+1 x numslot x slotfeat 
         pixels_embed = processor_output["state"] # bs x nstep x numslot x slotfeat (8x4x7x64)
+        if return_last_slot:
+            if "prev_slot" in info:
+                info["prev_slot"] = pixels_embed[:, -1].detach().clone()
+            else:
+                info.update({"prev_slot": pixels_embed[:, -1].detach().clone()})
 
         # == improve the embedding
         n_patches = pixels_embed.shape[2]
         embedding = pixels_embed
         info[f"pixels_{target}"] = pixels_embed
 
-        # == proprio embeddings
-        if proprio_key is not None:
-            proprio = info[proprio_key].float()
-            proprio_embed = self.proprio_encoder(proprio)  # (B, T, P) -> (B, T, P_emb)
-            info[f"proprio_{target}"] = proprio_embed
+        for key in [proprio_key, action_key]: # always in this order
+            if key == "proprio":
+                extr_enc = self.proprio_encoder
+            elif key == "action":
+                extr_enc = self.action_encoder
+            else:
+                continue
+            extra_input = info[f"{prefix}{key}"].float()  # (B, T, dim)
+            extra_embed = extr_enc(extra_input)  # (B, T, dim) -> (B, T, emb_dim)
+            info[f"{key}_{target}"] = extra_embed
 
-            # copy proprio embedding across patches for each time step
-            proprio_tiled = proprio_embed.unsqueeze(2) # B, T, 1, P_emb = slot_emb
-
-            # concatenate along slot dimension
-            embedding = torch.cat([pixels_embed, proprio_tiled], dim=2)
-
-        # == action embeddings
-        if action_key is not None:
-            action = info[action_key].float()
-
-            action_embed = self.action_encoder(action)  # (B, T, A) -> (B, T, A_emb)
-            info[f"action_{target}"] = action_embed
-
-            # copy action embedding across patches for each time step
-            action_tiled = action_embed.unsqueeze(2) # B, T, 1, A_emb = slot_emb
+            # copy extra embedding across patches for each time step
+            extra_tiled = extra_embed.unsqueeze(2)
 
             # concatenate along feature dimension
-            embedding = torch.cat([embedding, action_tiled], dim=2)
+            embedding = torch.cat([embedding, extra_tiled], dim=2)
 
         info[target] = embedding  # (B, T, P, d)
 
-        if return_all_slotstates:
-            info["all_slot_states"] = all_slot_states  # (B, T+1, numslot, slotfeat)
         return info
 
     def predict(self, embedding, use_inference_function: bool=False):
@@ -139,55 +140,77 @@ class CausalWM_AP(torch.nn.Module):
 
     def split_embedding(self, embedding, extra_dims):  # action_dim, proprio_dim):
         split_embed = {}
-        pixel_dim = embedding.shape[-1] - sum(extra_dims)
+        slot_num = embedding.shape[-2] - sum(extra_dims)
 
         # == pixels embedding
-        split_embed["pixels_embed"] = embedding[..., :pixel_dim]
+        split_embed["pixels_embed"] = embedding[..., :slot_num, :]
 
         # == extra embeddings
-        start_dim = pixel_dim
-        for i, key in enumerate(["action", "proprio"]):
+        start_dim = slot_num
+        for i, key in enumerate(["proprio", "action"]):
             dim = extra_dims[i]
-            extra_emb = embedding[..., start_dim : start_dim + dim]
-            split_embed[f"{key}_embed"] = extra_emb[:, :, :, 0]  # all patches are the same
+            extra_emb = embedding[..., start_dim : start_dim + dim, :].squeeze(-2)
+            split_embed[f"{key}_embed"] = extra_emb # all patches are the same
             start_dim += dim
 
         return split_embed
 
     def replace_action_in_embedding(self, embedding, act):
-        """Replace the action embeddings in the latent state z with the provided actions."""
+        """Replace the action embeddings in the latent state z with the provided actions.
+        
+        Args:
+            embedding: (B, N, T, P, d) - 5D tensor with action at the end of d
+            act: (B, N, T, action_dim) - raw actions to inject
+        Returns:
+            new_embedding: (B, N, T, P, d)
+        """
         assert self.action_encoder is not None, "No action encoder defined in the model."
         n_patches = embedding.shape[3]
         B, N = act.shape[:2]
         act_flat = rearrange(act, "b n ... -> (b n) ...")
-        z_act = self.action_encoder(act_flat)  # (B, T, A_emb)
+        z_act = self.action_encoder(act_flat)  # (B*N, T, A_emb)
         action_dim = z_act.shape[-1]
-        act_tiled = repeat(z_act.unsqueeze(2), "(b n) t 1 a -> b n t p a", b=B, n=N, p=n_patches)
-        # z (B, N, T, P, d) with d = dim + proprio_emb_dim + action_emb_dim
-        # replace the last 'action_emb_dim' dims of z with the action embeddings
-        new_embedding = torch.cat([embedding[..., :-action_dim], act_tiled], dim=-1)
+        act_tiled = z_act.unsqueeze(2) # (B*N, T, 1, A_emb)
+        act_tiled = rearrange(act_tiled, "(b n) t p d -> b n t p d", b=B, n=N, p=1, d=action_dim)
+        # z (B, N, T, P, d) with P = num_slot + proprio + action
+        new_embedding = torch.cat([embedding[:,:,:,:-1, :], act_tiled], dim=-2) # replace last patch
         return new_embedding
 
     def rollout(self, info, action_sequence):
         """Rollout the world model given an initial observation and a sequence of actions.
+        
+        Non-autoregressive rollout for MaskedSlotPredictor:
+        - Predicts pred_frames at a time (e.g., 3 frames per call)
+        - If horizon > pred_frames, reconstructs history using predicted frames
+        - Repeats until all required future steps are predicted
 
         Params:
-        obs_start: n current observations (B, n, C, H, W)
-        actions: current and predicted actions (B, n+t, action_dim)
+            info: dict containing 'pixels', 'proprio', etc.
+                  pixels shape: (B, N, T_history, C, H, W) where N = num_candidates
+                  - T_history comes from world.history_size
+            action_sequence: (B, N, horizon, action_dim * action_block)
+                  - This contains ONLY future actions (no history)
+                  - horizon = plan_config.horizon (number of planning steps)
+                  - Each action covers action_block environment steps
 
         Returns:
-        z_obs: dict with latent observations (B, n+t+1, n_patches, D)
-        z: predicted latent states (B, n+t+1, n_patches, D)
+            info: dict with 'predicted_embedding' of shape (B, N, T_history + horizon, S, D)
         """
+        # try:
+        #     use_hungarian = self.use_hungarian
+        # except:
+        use_hungarian = True
+        print(f"Rollout with use_hungarian = {use_hungarian}")
 
         assert "pixels" in info, "pixels not in info_dict"
-        n_obs = info["pixels"].shape[2]
         proprio_key = "proprio" if "proprio" in info else None
-        emb_keys = [proprio_key] if proprio_key in info else []        
+        emb_keys = [proprio_key] if proprio_key in info else []
+        
         # == add action to info dict
+
+        n_obs = info["pixels"].shape[2]
         act_0 = action_sequence[:, :, :n_obs]
         info["action"] = act_0
-
         # check if we have already computed the initial embedding for this state
         if (
             hasattr(self, "_init_cached_info")
@@ -200,8 +223,7 @@ class CausalWM_AP(torch.nn.Module):
             init_info_dict = {}
             for k, v in info.items():
                 if torch.is_tensor(v):
-                    # goal is the same across samples so we will only embed it once
-                    init_info_dict[k] = info[k][:, 0]  # (B, 1, ...)
+                    init_info_dict[k] = info[k][:, 0]  # (B, T_history, ...)
 
             init_info_dict = self.encode(
                 init_info_dict,
@@ -209,6 +231,7 @@ class CausalWM_AP(torch.nn.Module):
                 target="embed",
                 proprio_key=proprio_key,
                 action_key="action",
+                return_last_slot=True
             )
             # repeat copy for each action candidate
             init_info_dict["embed"] = (
@@ -233,9 +256,10 @@ class CausalWM_AP(torch.nn.Module):
             init_info_dict = {k: v.detach().clone() if torch.is_tensor(v) else v for k, v in init_info_dict.items()}
             self._init_cached_info = init_info_dict
 
+        # Get encoded history
         info["embed"] = init_info_dict["embed"]
         info["pixels_embed"] = init_info_dict["pixels_embed"]
-
+        info["prev_slot"] = init_info_dict["prev_slot"]
         for key in emb_keys:
             info[f"{key}_embed"] = init_info_dict[f"{key}_embed"]
 
@@ -252,31 +276,86 @@ class CausalWM_AP(torch.nn.Module):
         z = info["embed"]
         B, N = z.shape[:2]
 
+
         # we flatten B and N to process all candidates in a single batch in the predictor
         z_flat = rearrange(z, "b n ... -> (b n) ...").clone()
         act_pred_flat = rearrange(act_pred, "b n ... -> (b n) ...")
 
-        for t in range(n_steps):
-            # predict the next state
-            pred_embed = self.predict(z_flat[:, -self.history_size :])[:, -1:]  # (B*N, 1, P, D)
 
-            # add corresponding action to new embedding
-            new_action = act_pred_flat[None, :, t : t + 1, :]  # (1, B*N, 1, action_dim)
-            new_embed = self.replace_action_in_embedding(pred_embed.unsqueeze(0), new_action)[0]
+        # Collect all predictions
+        current_step = 0
 
-            # append new embedding to the sequence
+        while current_step < n_steps:
+            # Get current history window (last history_size frames)
+            history_input = z_flat[:, -self.history_size:]  # (B*N, history_size, S, D)
+
+            # Predict pred_frames future frames at once
+            pred_embed = self.predict(history_input, use_inference_function=True)  # (B*N, pred_frames, S, D)
+            pred_frames = pred_embed.shape[1]
+
+            # How many steps to use from this prediction
+            steps_this_round = min(pred_frames, n_steps - current_step)
+
+            # === Hungarian reordering to maintain slot consistency ===
+            # Reorder predicted slots to match the last frame of current history
+            if use_hungarian:
+                # Get the last frame of current history as reference (excluding action/proprio)
+                slot_dim = z_flat.shape[-2] - 2 # action, proprio
+                reference = z_flat[:, -1, :slot_dim, :]  # (B*N, S, pixel_dim)
+                
+                # Matching is done on pixels only, but full embedding is reordered
+                pred_embed = reorder_slots_to_match_AP(
+                    pred_embed, 
+                    reference, 
+                    cost_type='mse',
+                    slot_dim=slot_dim,
+                )
+
+            # Inject actions into predicted frames
+            new_action = act_pred_flat[None, :, current_step:current_step + steps_this_round, :]  # (B*N, steps_this_round, action_dim)
+            
+            # Only replace action in the frames we'll actually use
+            pred_to_use = pred_embed[:, :steps_this_round].clone()  # (B*N, steps_this_round, S, D)
+            new_embed = self.replace_action_in_embedding(pred_to_use.unsqueeze(0), new_action)[0]
+
+            # Update z_flat by appending predictions (for next iteration's history)
             z_flat = torch.cat([z_flat, new_embed], dim=1)
 
-        # predict the last state (n+t+1)
-        pred_embed = self.predict(z_flat[:, -self.history_size :])[:, -1:]  # (B, 1, P, D)
-        z_flat = torch.cat([z_flat, pred_embed], dim=1)
+            current_step += steps_this_round
+
+        # Predict one more step without action (final state after all actions)
+        # This matches the original behavior of predicting n+t+1 states for n+t actions
+        final_history = z_flat[:, -self.history_size:]
+        final_pred = self.predict(final_history, use_inference_function=True)[:, :1]  # Just first predicted frame
+        
+        # === Hungarian reordering for final prediction ===
+        # Reorder final_pred to match z_flat's last frame ordering
+        # This maintains consistency with the initial prev_slot ordering
+        if use_hungarian:
+            slot_dim = z_flat.shape[-2] - 2
+            reference = z_flat[:, -1, :slot_dim, :]  # (B*N, S, pixel_dim) - last frame of current z_flat
+            final_pred = reorder_slots_to_match_AP(
+                final_pred, 
+                reference=reference, 
+                cost_type='mse',
+                slot_dim=slot_dim,
+            )
+        
+        z_flat = torch.cat([z_flat, final_pred], dim=1)
+
+        # Reshape back to (B, N, T_total, S, D)
         z = rearrange(z_flat, "(b n) ... -> b n ...", b=B, n=N)
+
         # == update info dict with predicted embeddings
         info["predicted_embedding"] = z
 
-        action_dim = 0 if "action_embed" not in info else info["action_embed"].shape[-1]
-        proprio_dim = 0 if "proprio_embed" not in info else info["proprio_embed"].shape[-1]
-        extra_dims = [action_dim, proprio_dim]
+        # Extract embedding components for cost computation
+        extra_dims = []
+        # proprio first
+        if self.proprio_encoder is not None:
+            extra_dims.append(1)
+        if self.action_encoder is not None:
+            extra_dims.append(1)
 
         splitted_embed = self.split_embedding(z, extra_dims)
         info.update({f"predicted_{k}": v for k, v in splitted_embed.items()})
@@ -289,7 +368,21 @@ class CausalWM_AP(torch.nn.Module):
         emb_keys = [proprio_key] if proprio_key in info_dict else [] 
         cost = 0.0
 
-        for key in emb_keys + ["pixels"]:
+        pixel_preds = info_dict["predicted_pixels_embed"]
+        pixel_goal = info_dict["pixels_goal_embed"]
+        pred_last = pixel_preds[:, :, -1]  # (B, N, S, D)
+        goal_last = pixel_goal[:, :, -1]   # (B, N, S, D)
+        
+        # Hungarian matching for slot-based comparison
+        slot_costs = hungarian_cost(
+            pred_last, 
+            goal_last, 
+            cost_type='mse',
+            pixels_dim=None,  
+        ) 
+        cost = cost + slot_costs
+
+        for key in emb_keys:
             preds = info_dict[f"predicted_{key}_embed"]
             goal = info_dict[f"{key}_goal_embed"]
             cost = cost + F.mse_loss(preds[:, :, -1:], goal, reduction="none").mean(dim=tuple(range(2, preds.ndim)))
@@ -305,7 +398,8 @@ class CausalWM_AP(torch.nn.Module):
                 info_dict[k] = v.to(next(self.parameters()).device)
         proprio_key = "proprio" if "proprio" in info_dict else None
         emb_keys = [proprio_key] if proprio_key in info_dict else []
-
+        # == run world model
+        info_dict = self.rollout(info_dict, action_candidates)
         # == get the goal embedding
 
         # check if we have already computed the goal embedding for this goal
@@ -322,13 +416,20 @@ class CausalWM_AP(torch.nn.Module):
             for k, v in info_dict.items():
                 if torch.is_tensor(v):
                     # goal is the same across samples so we will only embed it once
-                    goal_info_dict[k] = info_dict[k][:, 0]  # (B, ...)
+                    # prev_slot has shape [B, num_slots, slot_size] without candidate dim
+                    # so we should not index it with [:, 0]
+                    if k == "prev_slot":
+                        goal_info_dict[k] = info_dict[k]  # keep as is: [B, num_slots, slot_size]
+                    else:
+                        goal_info_dict[k] = info_dict[k][:, 0]  # (B, ...)
+            assert "prev_slot" in info_dict, "prev_slot must be in info_dict for goal encoding"
             goal_info_dict = self.encode(
                 goal_info_dict,
                 target="goal_embed",
                 pixels_key="goal",
                 prefix="goal_",
-                emb_keys=emb_keys,
+                proprio_key=proprio_key,
+                action_key=None,
             )
 
             goal_info_dict["goal_embed"] = (
@@ -359,8 +460,7 @@ class CausalWM_AP(torch.nn.Module):
         for key in emb_keys:
             info_dict[f"{key}_goal_embed"] = goal_info_dict[f"{key}_goal_embed"]
 
-        # == run world model
-        info_dict = self.rollout(info_dict, action_candidates)
+
 
         # cost = 0.0
 

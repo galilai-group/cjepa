@@ -23,28 +23,29 @@ export CKPT_PATH="/cs/data/people/hnam16/.stable_worldmodel/artifacts/oc-checkpo
 
 # torchrun --nproc_per_node=3 --master-port=29501 \
 
-
-python train/train_causalwm_from_pusht_slot.py \
+# Caution!! Set output_model_name properly 
+python train/train_causalwm_AP_node_pusht_slot.py \
     cache_dir="/cs/data/people/hnam16/.stable_worldmodel" \
-    output_model_name="164p" \
+    output_model_name="168p" \
     dataset_name="pusht_expert" \
     num_workers=8 \
     batch_size=256 \
-    trainer.max_epochs=10 \
+    trainer.max_epochs=30 \
     num_masked_slots=0 \
     predictor_lr=5e-4 \
     proprio_encoder_lr=5e-4 \
     action_encoder_lr=5e-4 \
     dinowm.history_size=3 \
     dinowm.num_preds=1 \
-    dinowm.proprio_embed_dim=12 \
+    dinowm.proprio_embed_dim=128 \
+    dinowm.action_embed_dim=128 \
     frameskip=5 \
     videosaur.NUM_SLOTS=4 \
     videosaur.SLOT_DIM=128 \
-    predictor.heads=15 \
+    predictor.heads=16 \
     embedding_dir=${SLOTPATH} \
     model.load_weights=${CKPT_PATH} \
-    use_hungarian_matching=true \
+    use_hungarian_matching=false \
 
 
 

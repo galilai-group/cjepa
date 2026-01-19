@@ -14,6 +14,10 @@ wandb:
   entity: heejeong_nam-brown-university
 
 
+use_hungarian_matching: false
+hungarian_cost_type: mse  # options: mse, l1
+
+
 dataset_name: pusht_expert
 embedding_dir: '/cs/data/people/hnam16/data/modified_extraction/pusht_expert_slots_pushtnoise_videosaur_lr1e-4_w03_step=100000.pkl'
 cache_dir: "/cs/data/people/hnam16/.stable_worldmodel"
@@ -26,7 +30,7 @@ training_type: video  # options: video, wm
 
 trainer:
   max_epochs: 100
-  strategy: ddp 
+  # strategy: ddp 
   devices: auto
   accelerator: gpu 
   precision: 16-mixed

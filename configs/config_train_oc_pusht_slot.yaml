@@ -4,21 +4,42 @@ defaults:
   - _self_
   - override hydra/hydra_logging: disabled
   - override hydra/job_logging: disabled
+  # - override hydra/launcher: submitit_slurm
 
 hydra:
   output_subdir: null
+  # mode: MULTIRUN
+  # launcher:
+  #   max_num_timeout: 999
+  #   gpus_per_node: 2
+  #   tasks_per_node: ${hydra.launcher.gpus_per_node}
+  #   cpus_per_task: 4
+  #   mem_gb: 48
+  #   timeout_min: 4600
+  #   partition: main
+  #   signal_delay_s: 120
+  #   constraint: lovelace
+  #   # setup:
+  #   # [
+  #   #   "tar -czf \"$SLURM_TMPDIR/stablewm.tgz\" -C \"$STABLEWM_HOME\" .",
+  #   #   "tar -xzf \"$SLURM_TMPDIR/stablewm.tgz\" -C \"$SLURM_TMPDIR\"",
+  #   #   "rm -f \"$SLURM_TMPDIR/stablewm.tgz\""
+  #   # ]
+  # run:
+  #   dir: .
 
 wandb:
   enable: true
-  project: cjepa
+  project: cjepa_predictor_only
   entity: heejeong_nam-brown-university
 
 
-monitor_rankme: false                 
-rankme_queue_length: 2048 
-
-dataset_name: clevrer
+dataset_name: pusht_expert
+embedding_dir: '/cs/data/people/hnam16/data/modified_extraction/pusht_expert_slots_pushtnoise_videosaur_lr1e-4_w03_step=100000.pkl'
 cache_dir: "/cs/data/people/hnam16/.stable_worldmodel"
+action_dir: '/cs/data/people/hnam16/data/modified_extraction/pusht_expert_action_meta.pkl'
+proprio_dir: '/cs/data/people/hnam16/data/modified_extraction/pusht_expert_proprio_meta.pkl'
+state_dir: '/cs/data/people/hnam16/data/modified_extraction/pusht_expert_state_meta.pkl'
 
 output_model_name: causal_world_model
 training_type: video  # options: video, wm
@@ -31,7 +52,7 @@ trainer:
   precision: 16-mixed
   log_every_n_steps: 1
 
-batch_size: 64
+batch_size: 256
 num_workers: 10
 
 seed: 42
@@ -39,19 +60,16 @@ seed: 42
 image_size: 224
 patch_size: 16
 
-n_steps: ${eval:'${dinowm.num_preds} + ${dinowm.history_size}'}
-frameskip: 3
+n_steps:  ${eval:'${dinowm.num_preds} + ${dinowm.history_size}'}
+frameskip: 5
 
 dinowm:
-  history_size: 5
-  num_preds: 3
+  history_size: 3
+  num_preds: 1
   proprio_dim: 4
   proprio_embed_dim: 10
   action_dim: 2
   action_embed_dim: 10
-
-# Masked Slot Predictor Configuration
-num_masked_slots: 2  # M: number of slots to mask during training
 
 predictor:
   depth: 6
@@ -67,10 +85,10 @@ action_encoder_lr: 5e-4
 
 dump_object: true
 
-# Videosaur configuration (for slot-attention encoder)
+
 videosaur:
-  NUM_SLOTS: 7
-  SLOT_DIM: 128
+  NUM_SLOTS: 4 
+  SLOT_DIM: 128 
   DINO_MODEL: vit_small_patch14_dinov2.lvd142m
   FEAT_DIM: 384
   NUM_PATCHES: 196

@@ -1,18 +1,3 @@
-"""
-Train Causal World Model from Pre-extracted PushT Slot Representations.
-
-This script mirrors train_causalwm.py but skips the DINO+slot encoding step
-by using pre-extracted slot representations. This is more efficient since
-the encoder and slot attention modules are frozen anyway.
-
-Key differences from train_causalwm.py:
-1. Uses pre-extracted slots instead of encoding from pixels
-2. Maintains identical checkpoint format for downstream compatibility
-3. Still trains action_encoder and proprio_encoder from scratch
-
-The checkpoint format is identical to train_causalwm.py to ensure
-compatibility with downstream tasks.
-"""
 from pathlib import Path
 
 import hydra
@@ -20,6 +5,7 @@ import lightning as pl
 import stable_pretraining as spt
 import stable_worldmodel as swm
 import torch
+import torchvision
 from lightning.pytorch.callbacks import Callback, ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.strategies import DDPStrategy
@@ -28,17 +14,20 @@ from loguru import logger as logging
 from omegaconf import OmegaConf
 from torch.nn import functional as F
 from einops import rearrange, repeat
-from custom_models.cjepa_predictor import MaskedSlotPredictor
-from custom_models.dinowm_causal_savi import CausalWM_Savi
-from slotformer.base_slots.models import build_model
+from torch.utils.data import DataLoader
+from transformers import AutoModel
+import wandb
+from custom_models.dinowm_causal_AP_node import CausalWM_AP
+from custom_models.cjepa_predictor import MaskedSlot_AP_Predictor
+from videosaur.videosaur import models
+from custom_models.custom_codes.hungarian import hungarian_matching_loss_AP, hungarian_matching_loss_with_proprio
 from custom_models.custom_codes.custom_dataset import PushTSlotDataset
 
-import sys
-import importlib
 import pickle as pkl
 import numpy as np
 
 import os
+
 
 
 
@@ -125,7 +114,6 @@ def get_world_model(cfg):
         proprio_key = "proprio" if "proprio" in batch else None
         
         # Replace NaN values with 0 (occurs at sequence boundaries)
-        # This matches train_causalwm.py behavior
         if proprio_key is not None:
             batch[proprio_key] = torch.nan_to_num(batch[proprio_key], 0.0)
         if "action" in batch:
@@ -140,7 +128,6 @@ def get_world_model(cfg):
         
         # Encode action and proprio (still need to train these)
         embedding = pixels_embed
-        n_patches = S
         
         if proprio_key is not None:
             proprio = batch[proprio_key].float()  # (B, T, proprio_dim)
@@ -148,28 +135,31 @@ def get_world_model(cfg):
             batch["proprio_embed"] = proprio_embed
             
             # Tile proprio across slots
-            proprio_tiled = repeat(proprio_embed.unsqueeze(2), "b t 1 d -> b t p d", p=n_patches)
-            embedding = torch.cat([embedding, proprio_tiled], dim=-1)
+            proprio_tiled = proprio_embed.unsqueeze(2)
+            embedding = torch.cat([embedding, proprio_tiled], dim=2)
         if "action" in batch:
             action = batch["action"].float()  # (B, T, action_dim * frameskip)
             action_embed = self.model.action_encoder(action)  # (B, T, action_embed_dim)
             batch["action_embed"] = action_embed
             
             # Tile action across slots
-            action_tiled = repeat(action_embed.unsqueeze(2), "b t 1 d -> b t p d", p=n_patches)
-            embedding = torch.cat([embedding, action_tiled], dim=-1)
+            action_tiled = action_embed.unsqueeze(2)
+            embedding = torch.cat([embedding, action_tiled], dim=2)
         
         
         batch["embed"] = embedding  # (B, T, S, D_total)
         
         # Use history to predict next states
-        history_embed = embedding[:, :cfg.dinowm.history_size, :, :]  # (B, history_size, S, D_total)
-        
-        # Predict with masking
-        pred_output = self.model.predict(history_embed)
-        pixels_dim = pixels_embed.shape[-1]  # slot_dim
+        history_embed = embedding[:, :cfg.dinowm.history_size, :, :]  # (B, history_size, S+2, 64)
         
 
+        # Request mask information for selective loss
+        pred_output = self.model.predict(history_embed)
+        slot_num = pixels_embed.shape[2]
+        # Get config for Hungarian matching
+        use_hungarian = cfg.get("use_hungarian_matching", False)
+        hungarian_cost_type = cfg.get("hungarian_cost_type", "mse")
+        
         if len(pred_output[1]) > 0:  # mask_indices available
             pred_embedding, mask_indices = pred_output
             target_embedding = embedding[:, cfg.dinowm.history_size:cfg.dinowm.history_size + cfg.dinowm.num_preds, :, :]
@@ -177,54 +167,112 @@ def get_world_model(cfg):
             pred_history = pred_embedding[:, :cfg.dinowm.history_size, :, :]
             pred_future = pred_embedding[:, cfg.dinowm.history_size:cfg.dinowm.history_size + cfg.dinowm.num_preds, :, :]
             
-            # Loss on masked slots in history
+            # Loss on masked slots in history (no Hungarian matching for history - slots are aligned)
             gt_history = history_embed
             loss_masked_history = F.mse_loss(
-                pred_history[:, :, mask_indices, :pixels_dim],
-                gt_history[:, :, mask_indices, :pixels_dim].detach()
+                pred_history[:, :, mask_indices,  :],          #  action/proprio slots already excluded
+                gt_history[:, :, mask_indices,  :].detach()    #  action/proprio slots already excluded when selecting mask_indices
             )
-            
-            # Loss on future prediction
-            loss_future = F.mse_loss(
-                pred_future[..., :pixels_dim],
-                target_embedding[..., :pixels_dim].detach()
-            )
-            
-            batch["loss_masked_history"] = loss_masked_history
-            batch["loss_future"] = loss_future
-            batch["loss"] = loss_masked_history + loss_future
-            
-            # Add proprio loss if available
-            if proprio_key is not None:
-                proprio_dim = batch["proprio_embed"].shape[-1]
-                proprio_loss = F.mse_loss(
-                    pred_future[..., pixels_dim:pixels_dim + proprio_dim],
-                    target_embedding[..., pixels_dim:pixels_dim + proprio_dim].detach(),
+
+            if use_hungarian:
+                # Hungarian matching for future slots
+                hungarian_result = hungarian_matching_loss_AP(
+                    pred=pred_future[:, :, :slot_num, :],
+                    target=target_embedding[:, :, :slot_num, :].detach(),
+                    cost_type=hungarian_cost_type,
+                    reduction="mean",
                 )
-                batch["proprio_loss"] = proprio_loss
-                batch["loss"] = batch["loss"] + proprio_loss
-        else:
+                loss_future = hungarian_result["pixels_loss"]
+                batch["loss_future"] = loss_future
+                batch["loss_masked_history"] = loss_masked_history
+                batch["loss"] = loss_masked_history + loss_future
+                
+                if proprio_key is not None: # actually it is future proprio loss
+                    loss_proprio = F.mse_loss(
+                        pred_future[:, :, slot_num:slot_num+1, :],
+                        target_embedding[:, :,  slot_num:slot_num+1, :].detach()
+                    )
+                    batch['proprio_loss'] = loss_proprio
+                    batch["loss"] += loss_proprio
+                
+                # Log direct MSE for comparison (no gradient - for monitoring only)
+                with torch.no_grad():
+                    direct_mse_future  = F.mse_loss(pred_future[:, :, :slot_num, :], target_embedding[:, :, :slot_num, :].detach()) # exclude action/proprio slots
+                    batch["direct_mse_future_loss"] = direct_mse_future
+                    
+            else:
+                # Original direct MSE loss
+                loss_future = F.mse_loss(pred_future[:, :, :slot_num, :], target_embedding[:, :, :slot_num, :].detach()) # exclude action/proprio slots
+                
+                batch["loss_masked_history"] = loss_masked_history
+                batch["loss_future"] = loss_future
+                batch["loss"] = loss_masked_history + loss_future
+                
+                # Add proprio loss if available
+                if proprio_key is not None:
+                    loss_proprio = F.mse_loss(
+                        pred_future[:, :, slot_num:slot_num+1, :],
+                        target_embedding[:, :,  slot_num:slot_num+1, :].detach()
+                    )
+                    batch["proprio_loss"] = loss_proprio
+                    batch["loss"] = batch["loss"] + loss_proprio
+        else :
             pred_embedding = pred_output[0]
+            # pred_future = pred_embedding[:, cfg.dinowm.history_size : cfg.dinowm.history_size + cfg.dinowm.num_preds, :, :]       # (B, num_pred, S, 64)
+            # target_embedding = batch["embed"][:, cfg.dinowm.history_size : cfg.dinowm.history_size + cfg.dinowm.num_preds, :, :]  # (B, num_pred, S, 64)
+            # loss_future = F.mse_loss(pred_future[:, :, :slot_num, :], target_embedding[:, :, :slot_num, :].detach()) # exclude action/proprio slots
+            # batch["loss"] = loss_future 
+            # if proprio_key is not None:
+            #     loss_proprio = F.mse_loss(
+            #         pred_embedding[:, :, slot_num:slot_num+1, :],
+            #         embedding[:, :,  slot_num:slot_num+1, :].detach()
+            #     )
+            #     batch["loss"] += loss_proprio
+            #     batch["loss_proprio"] = loss_proprio
+            
+            
+            pred_history = pred_embedding[:, :cfg.dinowm.history_size, :, :]
             pred_future = pred_embedding[:, cfg.dinowm.history_size:cfg.dinowm.history_size + cfg.dinowm.num_preds, :, :]
             target_embedding = embedding[:, cfg.dinowm.history_size:cfg.dinowm.history_size + cfg.dinowm.num_preds, :, :]
             
-            loss_future = F.mse_loss(
-                pred_future[..., :pixels_dim],
-                target_embedding[..., :pixels_dim].detach()
-            )
-            batch["loss_future"] = loss_future
-            batch["loss"] = loss_future
-            
-            if proprio_key is not None:
-                proprio_dim = batch["proprio_embed"].shape[-1]
-                proprio_loss = F.mse_loss(
-                    pred_future[..., pixels_dim:pixels_dim + proprio_dim],
-                    target_embedding[..., pixels_dim:pixels_dim + proprio_dim].detach(),
+            if use_hungarian:
+                # Hungarian matching for future slots
+                hungarian_result = hungarian_matching_loss_AP(
+                    pred=pred_future[:, :, :slot_num, :],
+                    target=target_embedding[:, :, :slot_num, :].detach(),
+                    cost_type=hungarian_cost_type,
+                    reduction="mean",
                 )
-                batch["proprio_loss"] = proprio_loss
-                batch["loss"] = batch["loss"] + proprio_loss
-        
-        # Flatten predictions for RankMe monitoring
+                loss_future = hungarian_result["pixels_loss"]
+                batch["loss_future"] = loss_future
+                batch["loss"] = loss_future
+                
+                if proprio_key is not None: # actually it is future proprio loss
+                    loss_proprio = F.mse_loss(
+                        pred_future[:, :, slot_num:slot_num+1, :],
+                        target_embedding[:, :,  slot_num:slot_num+1, :].detach()
+                    )
+                    batch['proprio_loss'] = loss_proprio
+                    batch["loss"] += loss_proprio
+                
+                # Log direct MSE for comparison (no gradient - for monitoring only)
+                with torch.no_grad():
+                    direct_mse_future  = F.mse_loss(pred_future[:, :, :slot_num, :], target_embedding[:, :, :slot_num, :].detach()) # exclude action/proprio slots
+                    batch["direct_mse_future_loss"] = direct_mse_future
+            else:
+                loss_future = F.mse_loss(pred_future[:, :, :slot_num, :], target_embedding[:, :, :slot_num, :].detach()) # exclude action/proprio slots
+                batch["loss_future"] = loss_future
+                batch["loss"] = loss_future
+                
+                # Add proprio loss if available
+                if proprio_key is not None:
+                    loss_proprio = F.mse_loss(
+                        pred_future[:, :, slot_num:slot_num+1, :],
+                        target_embedding[:, :,  slot_num:slot_num+1, :].detach()
+                    )
+                    batch["proprio_loss"] = loss_proprio
+                    batch["loss"] = batch["loss"] + loss_proprio
+        # Flatten predictions for RankMe: (B, T, S, D) or (B, num_pred, S, D) -> (B*T, S*D) or (B*num_pred, S*D)
         if isinstance(pred_output, tuple) and len(pred_output) > 0:
             B, T, S, D = pred_output[0].shape
             pred_flat = pred_output[0].reshape(B * T, S * D)
@@ -241,56 +289,51 @@ def get_world_model(cfg):
         
         return batch
     
-    if cfg.savi.params.endswith('.py'):
-        params = cfg.savi.params[:-3]
-    sys.path.append(os.path.dirname(params))
-    params = importlib.import_module(os.path.basename(params))
-    params = params.SlotFormerParams()
-    model = build_model(params)
-    model.load_state_dict(
-        torch.load(cfg.savi.weight, map_location='cpu')['state_dict'])
-    model.testing = True  # we just want slots
+    # Build the videosaur model to get encoder, slot_attention, initializer
+    # These will be frozen and serve as placeholders for checkpoint compatibility
+    model = models.build(cfg.model, cfg.dummy_optimizer, None, None)
+    encoder = model.encoder
+    slot_attention = model.processor
+    initializer = model.initializer
+    embedding_dim = cfg.videosaur.SLOT_DIM 
 
-    num_patches = cfg.savi.NUM_SLOTS
-    embedding_dim = cfg.savi.SLOT_DIM
+    # num_patches = (cfg.image_size // cfg.patch_size) ** 2
+    num_patches = cfg.videosaur.NUM_SLOTS
+    logging.info(f"Patches: {num_patches}, Embedding dim: {embedding_dim}")
 
-    
-    # Total embedding dimension (slot + action + proprio)
-    embedding_dim += cfg.dinowm.proprio_embed_dim + cfg.dinowm.action_embed_dim
-    
-    logging.info(f"Patches: {num_patches}, Embedding dim: {embedding_dim}")    
-
-    # Build masked slot predictor (same as train_causalwm.py)
-    predictor = MaskedSlotPredictor(
-        num_slots=num_patches,
-        slot_dim=embedding_dim,
-        history_frames=cfg.dinowm.history_size,
-        pred_frames=cfg.dinowm.num_preds,
-        num_masked_slots=cfg.get("num_masked_slots", 2),
-        seed=cfg.seed,
+    # Build masked slot predictor (V-JEPA style)
+    predictor = MaskedSlot_AP_Predictor(
+        num_slots=num_patches + 2,  # number of slots + action_node + proprio_node
+        slot_dim=embedding_dim,  # 64 or higher if action/proprio included
+        history_frames=cfg.dinowm.history_size,  # T: history length
+        pred_frames=cfg.dinowm.num_preds,  # number of future frames to predict
+        num_masked_slots=cfg.get("num_masked_slots", 2),  # M: number of slots to mask
+        seed=cfg.seed,  # for reproducible masking
         depth=cfg.predictor.get("depth", 6),
         heads=cfg.predictor.get("heads", 16),
         dim_head=cfg.predictor.get("dim_head", 64),
         mlp_dim=cfg.predictor.get("mlp_dim", 2048),
         dropout=cfg.predictor.get("dropout", 0.1),
+        future_action_conditioning=cfg.predictor.get("future_action_conditioning", False)
     )
     
     # Build action and proprioception encoders (will be trained)
     effective_act_dim = cfg.frameskip * cfg.dinowm.action_dim
-    action_encoder = swm.wm.dinowm.Embedder(in_chans=effective_act_dim, emb_dim=cfg.dinowm.action_embed_dim)
-    proprio_encoder = swm.wm.dinowm.Embedder(in_chans=cfg.dinowm.proprio_dim, emb_dim=cfg.dinowm.proprio_embed_dim)
+    action_encoder = swm.wm.dinowm.Embedder(in_chans=effective_act_dim, emb_dim=cfg.videosaur.SLOT_DIM)
+    proprio_encoder = swm.wm.dinowm.Embedder(in_chans=cfg.dinowm.proprio_dim, emb_dim=cfg.videosaur.SLOT_DIM)
 
     logging.info(f"Action dim: {effective_act_dim}, Proprio dim: {cfg.dinowm.proprio_dim}")
 
-    # Assemble world model with frozen encoder/slot_attention for checkpoint compatibility
-    world_model = CausalWM_Savi(
-        encoder=spt.backbone.EvalOnly(model),
+    # Assemble world model
+    world_model = CausalWM_AP(
+        encoder=spt.backbone.EvalOnly(encoder),
+        slot_attention=spt.backbone.EvalOnly(slot_attention),
+        initializer=spt.backbone.EvalOnly(initializer),
         predictor=predictor,
         action_encoder=action_encoder,
         proprio_encoder=proprio_encoder,
         history_size=cfg.dinowm.history_size,
         num_pred=cfg.dinowm.num_preds,
-        model_name="SAVi" if "pusht" in cfg.dataset_name else "StoSAVi",
     )
     
     # Wrap in spt.Module with separate optimizers for each trainable component
@@ -320,7 +363,7 @@ def setup_pl_logger(cfg):
     
     wandb_run_id = cfg.wandb.get("run_id", None)
     wandb_logger = WandbLogger(
-        name="dino_wm_slot",
+        name="cjepa_ap_slot",
         project=cfg.wandb.project,
         entity=cfg.wandb.entity,
         resume="allow" if wandb_run_id else None,
@@ -360,7 +403,7 @@ class ModelObjectCallBack(Callback):
 # ============================================================================
 # Main Entry Point
 # ============================================================================
-@hydra.main(version_base=None, config_path="../configs", config_name="config_train_causal_pusht_slot_savi")
+@hydra.main(version_base=None, config_path="../configs", config_name="config_train_causal_pusht_slot")
 def run(cfg):
     """Run training of predictor using pre-extracted slot representations."""
     

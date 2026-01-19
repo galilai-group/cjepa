@@ -247,3 +247,110 @@ class MaskedSlotPredictor(nn.Module):
         out = self.to_out(out)
 
         return out, masked_indices
+
+
+
+class MaskedSlot_AP_Predictor(MaskedSlotPredictor):
+    def __init__(
+        self,
+        num_slots: int,             # Total number of slots per frame
+        slot_dim: int = 64,
+        history_frames: int = 3,    # Number of input frames
+        pred_frames: int = 1,       # Number of future frames to predict
+        num_masked_slots: int = 2,  # N slots to mask (context masking)
+        seed: int = 42,             # Random seed for masking
+        depth: int = 6,
+        heads: int = 8,
+        dim_head: int = 64,
+        mlp_dim: int = 2048,
+        dropout: float = 0.1,
+        future_action_conditioning: bool = False,  # If True, includes action conditioning in future frames
+    ):
+        super().__init__(
+            num_slots=num_slots,
+            slot_dim=slot_dim,
+            history_frames=history_frames,
+            pred_frames=pred_frames,
+            num_masked_slots=num_masked_slots,
+            seed=seed,
+            depth=depth,
+            heads=heads,
+            dim_head=dim_head,
+            mlp_dim=mlp_dim,
+            dropout=dropout,
+        )
+
+        self.future_action_conditioning = future_action_conditioning
+
+    def get_mask_indices(self, batch_size, device):
+        rng = np.random.RandomState(self.seed)
+        
+        # Select N indices out of num_slots
+        masked_indices = rng.choice(self.num_slots-2, self.num_masked_slots, replace=False) # excluding the last 2 slots: proprio and action
+        
+        # Create boolean mask for logic (True = Masked/Target, False = Visible/Context)
+        # This is strictly about "Slot" masking. Time masking logic is handled in prepare_input.
+        is_slot_masked = torch.zeros(self.num_slots, dtype=torch.bool, device=device)
+        is_slot_masked[masked_indices] = True
+        
+        return is_slot_masked, torch.from_numpy(masked_indices).to(device)
+    
+    # def prepare_input(self, x):
+    #     B, T_hist, S, D = x.shape
+    #     T_total = self.total_frames
+    #     device = x.device
+        
+    #     # 1. Get Mask Indices
+    #     if self.num_masked_slots > 0 :
+    #         is_slot_masked, masked_indices = self.get_mask_indices(B, device)
+    #     else:
+    #         masked_indices = torch.tensor([], dtype=torch.long, device=device)
+        
+    #     # 2. Prepare Base Components
+    #     # Anchors: First frame of all slots (B, S, D)
+    #     anchors = x[:, 0, :, :] 
+        
+    #     # Project anchors to create Identity Queries (B, S, D)
+    #     anchor_queries = self.id_projector(anchors)
+    #     tokens_grid = self.mask_token.expand(B, T_total, S, D)
+        
+    #     pos_grid = self.time_pos_embed.expand(B, T_total, S, D)
+    #     anchor_grid = anchor_queries.unsqueeze(1).expand(B, T_total, S, D)
+        
+    #     # Full Query Input
+    #     query_input = tokens_grid + pos_grid + anchor_grid
+
+    #     # 4. Construct the "Real Data Grid" (Only available for history)
+    #     # We start by cloning the query input, then overwrite visible parts with real data.
+    #     final_input = query_input.clone()
+        
+    #     # --- Overwrite Logic ---
+        
+    #     # (A) ALWAYS overwrite t=0 with Real Data + TimePE(0) for ALL slots
+    #     # This ensures the Anchor is physically present in the input
+    #     final_input[:, 0, :, :] = x[:, 0, :, :] + self.time_pos_embed[:, 0, :, :]
+        
+    #     # (B) For UNMASKED (Context) slots, overwrite history (t=1 to T_hist-1)
+    #     # Filter indices for unmasked slots
+    #     if self.num_masked_slots > 0:
+    #         unmasked_indices = torch.where(~is_slot_masked)[0]
+    #     else:
+    #         unmasked_indices = torch.arange(0, x.shape[2])
+        
+    #     if len(unmasked_indices) > 0 and T_hist > 1:
+    #         # Extract real history for unmasked slots
+    #         # x[:, 1:, ...] matches T_hist-1 frames
+    #         real_history = x[:, 1:, unmasked_indices, :]
+            
+    #         # Add corresponding TimePE
+    #         history_pos = self.time_pos_embed[:, 1:T_hist, :, :].expand(B, T_hist-1, S, D)
+    #         history_pos_unmasked = history_pos[:, :, unmasked_indices, :]
+            
+    #         # Overwrite in final_input
+    #         final_input[:, 1:T_hist, unmasked_indices, :] = real_history + history_pos_unmasked
+
+    #     # Note: 
+    #     # - Masked slots at t >= 1 remain as "Query Input".
+    #     # - Unmasked slots at t >= T_hist (Future) remain as "Query Input".
+        
+    #     return final_input, masked_indices

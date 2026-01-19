@@ -7,24 +7,31 @@ world:
   env_name: swm/PushT-v1
   num_envs: ${eval.num_eval}
   max_episode_steps: ??? # make sure it's >= eval_budget
-  history_size: 1
+  history_size: 5
   frame_skip: 1
+
 
 seed: 42
 policy: pusht_expert_world_model_epoch_10 # ckpt name or random
+cache_dir: /cs/data/people/hnam16/.stable_worldmodel/
 
 plan_config:
-  horizon: 5
-  receding_horizon: 5
-  action_block: 5 # frameskip
+  horizon: 9 # frame num of action_sequence in rollout. do not include history frames
+  receding_horizon: 3
+  action_block: 3 # frameskip
 
 # evaluation from dataset (replay expert trajectories)
 eval:
   num_eval: 50
   goal_offset_steps: 25
   eval_budget: 50
-  dataset_name: pusht_expert_video_train
+  dataset_name: pusht_expert_train
   data_format: video
 
 output:
   filename: results.txt
+
+wandb:
+  use_wandb: true
+  project: cjepa
+  entity: heejeong_nam-brown-university

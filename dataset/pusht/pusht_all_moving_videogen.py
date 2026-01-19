@@ -292,7 +292,7 @@ class MovingObjectsVideoGenerator:
         # 2. Add significant Gaussian noise to match real video grain
         # Real camera sensor noise is ~3-8 units (std dev) on pixel values
         # This creates the 10-20 unit variation we see in actual PushT data
-        noise_level = self.rng.normal(0, 4.0, img_compressed.shape)  # Increased from 1.5 to 4.0
+        noise_level = self.rng.normal(0, 3.0, img_compressed.shape)  # Increased from 1.5 to 4.0
         img_noisy = np.clip(img_compressed.astype(np.float32) + noise_level, 0, 255)
         
         # 3. Add spatial correlation to noise (more realistic than pure Gaussian)
@@ -302,19 +302,8 @@ class MovingObjectsVideoGenerator:
         # Mix original noisy with slightly blurred version
         img_noisy = 0.6 * img_noisy + 0.4 * img_noisy_blur
         
-        # 4. Add per-channel color jitter for more variation
-        # Camera sensors have different noise characteristics per channel
-        color_jitter = self.rng.normal(1.0, 0.015, 3)  # Increased from 0.005 to 0.015 (~1.5%)
-        img_jittered = img_noisy * color_jitter[np.newaxis, np.newaxis, :]
-        img_jittered = np.clip(img_jittered, 0, 255)
         
-        # 5. Add small amount of salt-and-pepper-like noise for additional variation
-        # This creates occasional outlier values like in real data
-        noise_mask = self.rng.random(img_jittered.shape) < 0.001  # 0.1% of pixels
-        salt_pepper = self.rng.choice([0, 255], size=img_jittered.shape)
-        img_jittered = np.where(noise_mask, salt_pepper, img_jittered)
-        
-        return np.clip(img_jittered, 0, 255).astype(np.uint8)
+        return np.clip(img_noisy, 0, 255).astype(np.uint8)
 
     def render_frame(self, background_color=(255, 255, 255), add_noise=True, jpeg_quality=85):
         """Render the current state to a frame with optional noise and compression.
@@ -562,7 +551,7 @@ def main():
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="/cs/data/people/hnam16/data/pusht_independent_videos_with_noise",
+        default="/cs/data/people/hnam16/data/pusht_independent_videos_with_mild_noise",
         help="Output directory for generated videos"
     )
     parser.add_argument(

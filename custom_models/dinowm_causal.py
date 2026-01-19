@@ -7,6 +7,9 @@ from einops import rearrange, repeat
 from torch import distributed as dist
 from torch import nn
 
+# Hungarian matching for planning
+from custom_models.custom_codes.hungarian import hungarian_cost, reorder_slots_to_match
+
 
 class CausalWM(torch.nn.Module):
     def __init__(
@@ -22,6 +25,8 @@ class CausalWM(torch.nn.Module):
         num_pred=1,
         interpolate_pos_encoding=True,
         device="cpu",
+        use_hungarian=True,          # Enable Hungarian matching for planning use_hungarian
+        hungarian_cost_type="mse",    # "mse" or "cosine"
     ):
         super().__init__()
 
@@ -36,6 +41,10 @@ class CausalWM(torch.nn.Module):
         self.num_pred = num_pred
         self.device = device
         self.interpolate_pos_encoding = interpolate_pos_encoding
+        
+        # Hungarian matching settings
+        self.use_hungarian = use_hungarian
+        self.hungarian_cost_type = hungarian_cost_type
 
         decoder_scale = 16  # from vqvae
         num_side_patches = 224 // decoder_scale
@@ -50,11 +59,9 @@ class CausalWM(torch.nn.Module):
         target="embed",
         proprio_key=None,
         action_key=None,
-        return_all_slotstates=False,
-        manual_slot_state=None
+        return_last_slot=False
     ):
         assert target not in info, f"{target} key already in info_dict"
-
         emb_keys = [proprio_key, action_key]
         prefix = prefix or ""
 
@@ -62,19 +69,19 @@ class CausalWM(torch.nn.Module):
         pixels = info[pixels_key].float()  # (B, T, 3, H, W)
         B = pixels.shape[0]
         pixels_embed = self.encoder(pixels)#.last_hidden_state.detach() # bt, n_patches+1, d
-        # pixels_embed["backbone_features"].shape = 8, 4, 1369, 384 > each patch has 384 dim (dino)
-        # pixels_embed["features"].shape = 8, 4, 1369, 64 > each patch has 64 dim
-        # what is pixels_embed["vit_block12"] and pixels_embed["vit_block_keys12"]
         features = pixels_embed["features"]
 
-        if manual_slot_state is not None:
-            slots_initial = manual_slot_state   
+        if "prev_slot" in info:
+            slots_initial = info["prev_slot"]   
         else:
             slots_initial = self.initializer(batch_size=B) # bs x slotnum x slotfeat (8x7x64)
         processor_output = self.slot_attention(slots_initial, features)
-        if return_all_slotstates:
-            all_slot_states = processor_output["all_slot_states"].detach() # bs x nstep+1 x numslot x slotfeat 
         pixels_embed = processor_output["state"] # bs x nstep x numslot x slotfeat (8x4x7x64)
+        if return_last_slot:
+            if "prev_slot" in info:
+                info["prev_slot"] = pixels_embed[:, -1].detach().clone()
+            else:
+                info.update({"prev_slot": pixels_embed[:, -1].detach().clone()})
 
         # == improve the embedding
         n_patches = pixels_embed.shape[2]
@@ -100,8 +107,6 @@ class CausalWM(torch.nn.Module):
 
         info[target] = embedding  # (B, T, P, d)
 
-        if return_all_slotstates:
-            info["all_slot_states"] = all_slot_states  # (B, T+1, numslot, slotfeat)
         return info
 
     def predict(self, embedding, use_inference_function: bool=False):
@@ -187,23 +192,6 @@ class CausalWM(torch.nn.Module):
         # return embedding
         return new_embedding
 
-    def _replace_action_flat(self, embedding, actions):
-        """Replace actions in embedding for flattened batch (no N dimension).
-        
-        Args:
-            embedding: (B, T, S, D) - 4D tensor with action at the end of D
-            actions: (B, T, action_dim) - raw actions to inject
-        Returns:
-            new_embedding: (B, T, S, D)
-        """
-        assert self.action_encoder is not None, "No action encoder defined in the model."
-        n_patches = embedding.shape[2]
-        act_embed = self.action_encoder(actions)  # (B, T, action_embed_dim)
-        action_dim = act_embed.shape[-1]
-        act_tiled = repeat(act_embed.unsqueeze(2), "b t 1 d -> b t p d", p=n_patches)
-        new_embedding = torch.cat([embedding[..., :-action_dim], act_tiled], dim=-1)
-        return new_embedding
-
     def rollout(self, info, action_sequence):
         """Rollout the world model given an initial observation and a sequence of actions.
         
@@ -224,6 +212,11 @@ class CausalWM(torch.nn.Module):
         Returns:
             info: dict with 'predicted_embedding' of shape (B, N, T_history + horizon, S, D)
         """
+        # try:
+        #     use_hungarian = self.use_hungarian
+        # except:
+        use_hungarian = True
+        print(f"Rollout with use_hungarian = {use_hungarian}")
 
         assert "pixels" in info, "pixels not in info_dict"
         proprio_key = "proprio" if "proprio" in info else None
@@ -254,6 +247,7 @@ class CausalWM(torch.nn.Module):
                 target="embed",
                 proprio_key=proprio_key,
                 action_key="action",
+                return_last_slot=True
             )
             # repeat copy for each action candidate
             init_info_dict["embed"] = (
@@ -281,6 +275,7 @@ class CausalWM(torch.nn.Module):
         # Get encoded history
         info["embed"] = init_info_dict["embed"]
         info["pixels_embed"] = init_info_dict["pixels_embed"]
+        info["prev_slot"] = init_info_dict["prev_slot"]
         for key in emb_keys:
             info[f"{key}_embed"] = init_info_dict[f"{key}_embed"]
 
@@ -317,6 +312,22 @@ class CausalWM(torch.nn.Module):
             # How many steps to use from this prediction
             steps_this_round = min(pred_frames, n_steps - current_step)
 
+            # === Hungarian reordering to maintain slot consistency ===
+            # Reorder predicted slots to match the last frame of current history
+            if use_hungarian:
+                # Get the last frame of current history as reference (excluding action/proprio)
+                extra_dim = sum(encoder.emb_dim for encoder in [self.proprio_encoder, self.action_encoder] if encoder is not None)
+                pixel_dim = z_flat.shape[-1] - extra_dim
+                reference = z_flat[:, -1, :, :pixel_dim]  # (B*N, S, pixel_dim)
+                
+                # Matching is done on pixels only, but full embedding is reordered
+                pred_embed = reorder_slots_to_match(
+                    pred_embed, 
+                    reference, 
+                    cost_type='mse',
+                    pixels_dim=pixel_dim,
+                )
+
             # Inject actions into predicted frames
             new_action = act_pred_flat[None, :, current_step:current_step + steps_this_round, :]  # (B*N, steps_this_round, action_dim)
             
@@ -333,6 +344,21 @@ class CausalWM(torch.nn.Module):
         # This matches the original behavior of predicting n+t+1 states for n+t actions
         final_history = z_flat[:, -self.history_size:]
         final_pred = self.predict(final_history, use_inference_function=True)[:, :1]  # Just first predicted frame
+        
+        # === Hungarian reordering for final prediction ===
+        # Reorder final_pred to match z_flat's last frame ordering
+        # This maintains consistency with the initial prev_slot ordering
+        if use_hungarian:
+            extra_dim = sum(encoder.emb_dim for encoder in [self.proprio_encoder, self.action_encoder] if encoder is not None)
+            pixel_dim = z_flat.shape[-1] - extra_dim
+            reference = z_flat[:, -1, :, :pixel_dim]  # (B*N, S, pixel_dim) - last frame of current z_flat
+            final_pred = reorder_slots_to_match(
+                final_pred, 
+                reference=reference, 
+                cost_type='mse',
+                pixels_dim=pixel_dim,
+            )
+        
         z_flat = torch.cat([z_flat, final_pred], dim=1)
 
         # Reshape back to (B, N, T_total, S, D)
@@ -360,10 +386,39 @@ class CausalWM(torch.nn.Module):
         emb_keys = [proprio_key] if proprio_key in info_dict else [] 
         cost = 0.0
 
-        for key in emb_keys + ["pixels"]:
-            preds = info_dict[f"predicted_{key}_embed"]
-            goal = info_dict[f"{key}_goal_embed"]
-            cost = cost + F.mse_loss(preds[:, :, -1:], goal[:, :, -1:], reduction="none").mean(dim=tuple(range(2, preds.ndim)))
+        # Process pixels with Hungarian matching (has slot structure)
+        preds = info_dict["predicted_pixels_embed"]  # (B, N, T, S, D)
+        goal = info_dict["pixels_goal_embed"]        # (B, N, T, S, D)
+        
+        # preds: (B, N, T, S, D), goal: (B, N, T, S, D) 
+        # We compare last predicted frame with last goal frame
+        pred_last = preds[:, :, -1]  # (B, N, S, D)
+        goal_last = goal[:, :, -1]   # (B, N, S, D)
+        
+        # Hungarian matching for slot-based comparison
+        slot_costs = hungarian_cost(
+            pred_last, 
+            goal_last, 
+            cost_type='mse',
+            pixels_dim=None,  # Use full dimension
+        )  # Returns (B, N)
+        
+        cost = cost + slot_costs
+        
+        # Process proprio with direct MSE (no slot structure - same across all slots)
+        if proprio_key is not None:
+            proprio_preds = info_dict["predicted_proprio_embed"]  # (B, N, T, proprio_dim)
+            proprio_goal = info_dict["proprio_goal_embed"]        # (B, N, T, proprio_dim)
+            
+            # Direct MSE for proprio (no Hungarian matching needed)
+            proprio_cost = F.mse_loss(
+                proprio_preds[:, :, -1:], 
+                proprio_goal[:, :, -1:], 
+                reduction="none"
+            ).mean(dim=tuple(range(2, proprio_preds.ndim)))  # (B, N)
+            
+            cost = cost + proprio_cost
+            
         return cost
 
     def get_cost(self, info_dict: dict, action_candidates: torch.Tensor):
@@ -376,7 +431,8 @@ class CausalWM(torch.nn.Module):
                 info_dict[k] = v.to(next(self.parameters()).device)
         proprio_key = "proprio" if "proprio" in info_dict else None
         emb_keys = [proprio_key] if proprio_key in info_dict else []
-
+        # == run world model
+        info_dict = self.rollout(info_dict, action_candidates)
         # == get the goal embedding
 
         # check if we have already computed the goal embedding for this goal
@@ -393,7 +449,13 @@ class CausalWM(torch.nn.Module):
             for k, v in info_dict.items():
                 if torch.is_tensor(v):
                     # goal is the same across samples so we will only embed it once
-                    goal_info_dict[k] = info_dict[k][:, 0]  # (B, ...)
+                    # prev_slot has shape [B, num_slots, slot_size] without candidate dim
+                    # so we should not index it with [:, 0]
+                    if k == "prev_slot":
+                        goal_info_dict[k] = info_dict[k]  # keep as is: [B, num_slots, slot_size]
+                    else:
+                        goal_info_dict[k] = info_dict[k][:, 0]  # (B, ...)
+            assert "prev_slot" in info_dict, "prev_slot must be in info_dict for goal encoding"
             goal_info_dict = self.encode(
                 goal_info_dict,
                 target="goal_embed",
@@ -431,8 +493,7 @@ class CausalWM(torch.nn.Module):
         for key in emb_keys:
             info_dict[f"{key}_goal_embed"] = goal_info_dict[f"{key}_goal_embed"]
 
-        # == run world model
-        info_dict = self.rollout(info_dict, action_candidates)
+
 
         # cost = 0.0
 

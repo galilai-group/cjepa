@@ -50,30 +50,36 @@ class OCWM(torch.nn.Module):
         target="embed",
         proprio_key=None,
         action_key=None,
+        return_last_slot=False
     ):
         assert target not in info, f"{target} key already in info_dict"
-
-        emb_keys = [action_key, proprio_key]
+        emb_keys = [proprio_key, action_key]
         prefix = prefix or ""
 
         # == pixels embeddings
         pixels = info[pixels_key].float()  # (B, T, 3, H, W)
         B = pixels.shape[0]
         pixels_embed = self.encoder(pixels)#.last_hidden_state.detach() # bt, n_patches+1, d
-        # pixels_embed["backbone_features"].shape = 8, 4, 1369, 384 > each patch has 384 dim (dino)
-        # pixels_embed["features"].shape = 8, 4, 1369, 64 > each patch has 64 dim
-        # what is pixels_embed["vit_block12"] and pixels_embed["vit_block_keys12"]
         features = pixels_embed["features"]
-        slots_initial = self.initializer(batch_size=B) # bs x slotnum x slotfeat (8x7x64)
+
+        if "prev_slot" in info:
+            slots_initial = info["prev_slot"]   
+        else:
+            slots_initial = self.initializer(batch_size=B) # bs x slotnum x slotfeat (8x7x64)
         processor_output = self.slot_attention(slots_initial, features)
         pixels_embed = processor_output["state"] # bs x nstep x numslot x slotfeat (8x4x7x64)
+        if return_last_slot:
+            if "prev_slot" in info:
+                info["prev_slot"] = pixels_embed[:, -1].detach().clone()
+            else:
+                info.update({"prev_slot": pixels_embed[:, -1].detach().clone()})
 
         # == improve the embedding
         n_patches = pixels_embed.shape[2]
         embedding = pixels_embed
         info[f"pixels_{target}"] = pixels_embed
 
-        for key in emb_keys:
+        for key in [proprio_key, action_key]: # always in this order
             if key == "proprio":
                 extr_enc = self.proprio_encoder
             elif key == "action":
@@ -94,7 +100,7 @@ class OCWM(torch.nn.Module):
 
         return info
 
-    def predict(self, embedding, use_inference_function=False):
+    def predict(self, embedding, use_inference_function: bool=False):
         """predict next latent state
         Args:
             embedding: (B, T, P, d)
@@ -131,7 +137,7 @@ class OCWM(torch.nn.Module):
 
         # == extra embeddings
         start_dim = pixel_dim
-        for i, key in enumerate(["action", "proprio"]):
+        for i, key in enumerate(["proprio", "action"]):
             dim = extra_dims[i]
             extra_emb = embedding[..., start_dim : start_dim + dim]
             split_embed[f"{key}_embed"] = extra_emb[:, :, :, 0]  # all patches are the same
@@ -166,13 +172,14 @@ class OCWM(torch.nn.Module):
         """
 
         assert "pixels" in info, "pixels not in info_dict"
-        n_obs = info["pixels"].shape[2]
         proprio_key = "proprio" if "proprio" in info else None
-        emb_keys = [proprio_key] if proprio_key in info else []        
+        emb_keys = [proprio_key] if proprio_key in info else []
+        
         # == add action to info dict
+
+        n_obs = info["pixels"].shape[2]
         act_0 = action_sequence[:, :, :n_obs]
         info["action"] = act_0
-
         # check if we have already computed the initial embedding for this state
         if (
             hasattr(self, "_init_cached_info")
@@ -194,6 +201,7 @@ class OCWM(torch.nn.Module):
                 target="embed",
                 proprio_key=proprio_key,
                 action_key="action",
+                return_last_slot=True
             )
             # repeat copy for each action candidate
             init_info_dict["embed"] = (
@@ -218,9 +226,10 @@ class OCWM(torch.nn.Module):
             init_info_dict = {k: v.detach().clone() if torch.is_tensor(v) else v for k, v in init_info_dict.items()}
             self._init_cached_info = init_info_dict
 
+        # Get encoded history
         info["embed"] = init_info_dict["embed"]
         info["pixels_embed"] = init_info_dict["pixels_embed"]
-
+        info["prev_slot"] = init_info_dict["prev_slot"]
         for key in emb_keys:
             info[f"{key}_embed"] = init_info_dict[f"{key}_embed"]
 
@@ -236,6 +245,7 @@ class OCWM(torch.nn.Module):
         # == initial embedding
         z = info["embed"]
         B, N = z.shape[:2]
+
 
         # we flatten B and N to process all candidates in a single batch in the predictor
         z_flat = rearrange(z, "b n ... -> (b n) ...").clone()
@@ -256,12 +266,17 @@ class OCWM(torch.nn.Module):
         pred_embed = self.predict(z_flat[:, -self.history_size :])[:, -1:]  # (B, 1, P, D)
         z_flat = torch.cat([z_flat, pred_embed], dim=1)
         z = rearrange(z_flat, "(b n) ... -> b n ...", b=B, n=N)
+
         # == update info dict with predicted embeddings
         info["predicted_embedding"] = z
 
-        action_dim = 0 if "action_embed" not in info else info["action_embed"].shape[-1]
-        proprio_dim = 0 if "proprio_embed" not in info else info["proprio_embed"].shape[-1]
-        extra_dims = [action_dim, proprio_dim]
+        # Extract embedding components for cost computation
+        extra_dims = []
+        # proprio first
+        if self.proprio_encoder is not None:
+            extra_dims.append(info["proprio_embed"].shape[-1])
+        if self.action_encoder is not None:
+            extra_dims.append(self.action_encoder.emb_dim)
 
         splitted_embed = self.split_embedding(z, extra_dims)
         info.update({f"predicted_{k}": v for k, v in splitted_embed.items()})
@@ -290,7 +305,8 @@ class OCWM(torch.nn.Module):
                 info_dict[k] = v.to(next(self.parameters()).device)
         proprio_key = "proprio" if "proprio" in info_dict else None
         emb_keys = [proprio_key] if proprio_key in info_dict else []
-
+        # == run world model
+        info_dict = self.rollout(info_dict, action_candidates)
         # == get the goal embedding
 
         # check if we have already computed the goal embedding for this goal
@@ -307,7 +323,13 @@ class OCWM(torch.nn.Module):
             for k, v in info_dict.items():
                 if torch.is_tensor(v):
                     # goal is the same across samples so we will only embed it once
-                    goal_info_dict[k] = info_dict[k][:, 0]  # (B, ...)
+                    # prev_slot has shape [B, num_slots, slot_size] without candidate dim
+                    # so we should not index it with [:, 0]
+                    if k == "prev_slot":
+                        goal_info_dict[k] = info_dict[k]  # keep as is: [B, num_slots, slot_size]
+                    else:
+                        goal_info_dict[k] = info_dict[k][:, 0]  # (B, ...)
+            assert "prev_slot" in info_dict, "prev_slot must be in info_dict for goal encoding"
             goal_info_dict = self.encode(
                 goal_info_dict,
                 target="goal_embed",
@@ -345,8 +367,7 @@ class OCWM(torch.nn.Module):
         for key in emb_keys:
             info_dict[f"{key}_goal_embed"] = goal_info_dict[f"{key}_goal_embed"]
 
-        # == run world model
-        info_dict = self.rollout(info_dict, action_candidates)
+
 
         # cost = 0.0
 

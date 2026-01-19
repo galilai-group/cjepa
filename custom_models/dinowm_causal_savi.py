@@ -48,6 +48,7 @@ class CausalWM_Savi(torch.nn.Module):
         target="embed",
         proprio_key=None,
         action_key=None,
+        return_last_slot=False
     ):
         assert target not in info, f"{target} key already in info_dict"
         emb_keys = [proprio_key, action_key]
@@ -63,9 +64,20 @@ class CausalWM_Savi(torch.nn.Module):
             pixels = transform(pixels)
             pixels = rearrange(pixels, "(b t) c h w -> b t c h w", b=B)
         info[pixels_key] = pixels  # store resized pixels
-        in_dict = {'img': pixels}  # resize for encoder
-        pixels_embed = self.encoder(in_dict)
+
+        if "prev_slot" in info:
+            pixels_embed = self.encoder._modules["backbone"]._forward(pixels, prev_slots=info["prev_slot"])
+        else:
+            in_dict = {'img': pixels}  # resize for encoder
+            pixels_embed = self.encoder(in_dict)
         pixels_embed = pixels_embed['post_slots'] # bs x nstep x numslot x slotfeat (8x4x7x64)
+        if len(pixels_embed.shape) == 3:
+            pixels_embed = pixels_embed.unsqueeze(0)  # (B, T, s, d) # batch 가 없어진건지.. temporal이 없어진건지...
+        if return_last_slot:
+            if "prev_slot" not in info:
+                info['prev_slot'] = pixels_embed[:, -1].detach().clone()
+            else:
+                info.update({'prev_slot': pixels_embed[:, -1].detach().clone()})
 
         # == improve the embedding
         n_patches = pixels_embed.shape[2]
@@ -243,6 +255,7 @@ class CausalWM_Savi(torch.nn.Module):
                 target="embed",
                 proprio_key=proprio_key,
                 action_key="action",
+                return_last_slot=True
             )
             # repeat copy for each action candidate
             init_info_dict["embed"] = (
@@ -270,6 +283,7 @@ class CausalWM_Savi(torch.nn.Module):
         # Get encoded history
         info["embed"] = init_info_dict["embed"]
         info["pixels_embed"] = init_info_dict["pixels_embed"]
+        info["prev_slot"] = init_info_dict["prev_slot"]
         for key in emb_keys:
             info[f"{key}_embed"] = init_info_dict[f"{key}_embed"]
 
@@ -365,7 +379,8 @@ class CausalWM_Savi(torch.nn.Module):
                 info_dict[k] = v.to(next(self.parameters()).device)
         proprio_key = "proprio" if "proprio" in info_dict else None
         emb_keys = [proprio_key] if proprio_key in info_dict else []
-
+        # == run world model
+        info_dict = self.rollout(info_dict, action_candidates)
         # == get the goal embedding
 
         # check if we have already computed the goal embedding for this goal
@@ -382,7 +397,13 @@ class CausalWM_Savi(torch.nn.Module):
             for k, v in info_dict.items():
                 if torch.is_tensor(v):
                     # goal is the same across samples so we will only embed it once
-                    goal_info_dict[k] = info_dict[k][:, 0]  # (B, ...)
+                    # prev_slot has shape [B, num_slots, slot_size] without candidate dim
+                    # so we should not index it with [:, 0]
+                    if k == "prev_slot":
+                        goal_info_dict[k] = info_dict[k]  # keep as is: [B, num_slots, slot_size]
+                    else:
+                        goal_info_dict[k] = info_dict[k][:, 0]  # (B, ...)
+            assert "prev_slot" in info_dict, "prev_slot must be in info_dict for goal encoding"
             goal_info_dict = self.encode(
                 goal_info_dict,
                 target="goal_embed",
@@ -420,8 +441,7 @@ class CausalWM_Savi(torch.nn.Module):
         for key in emb_keys:
             info_dict[f"{key}_goal_embed"] = goal_info_dict[f"{key}_goal_embed"]
 
-        # == run world model
-        info_dict = self.rollout(info_dict, action_candidates)
+
 
         # cost = 0.0
 
