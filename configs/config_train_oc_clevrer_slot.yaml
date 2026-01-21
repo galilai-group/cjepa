@@ -10,35 +10,41 @@ hydra:
 
 wandb:
   enable: true
-  project: cjepa
+  project: cjepa_predictor_only
   entity: heejeong_nam-brown-university
 
 
-monitor_rankme: false                 
-rankme_queue_length: 2048 
-
-dataset_name: pusht_expert
+dataset_name: clevrer
+embedding_dir: '/cs/data/people/hnam16/data/modified_extraction/clevrer_slots_step=100000_weight03_lr1e-4_clevrer.pkl'
 cache_dir: "/cs/data/people/hnam16/.stable_worldmodel"
 
-output_model_name: world_model
-training_type: video # options: video, wm
+
+rollout:
+  save_rollout: true
+  rollout_batch_size: 64
+  rollout_only: false
+  rollout_checkpoint: null
+
+output_model_name: causal_world_model
+training_type: video  # options: video, wm
 
 trainer:
   max_epochs: 100
-  strategy: ddp 
+  # strategy: ddp 
   devices: auto
   accelerator: gpu 
   precision: 16-mixed
   log_every_n_steps: 1
 
-batch_size: 64
-num_workers: 8
+batch_size: 256
+num_workers: 10
+
 seed: 42
 
 image_size: 224
 patch_size: 16
 
-n_steps:  ${eval:'${dinowm.num_preds} + ${dinowm.history_size}'}
+n_steps: ${eval:'${dinowm.num_preds} + ${dinowm.history_size}'}
 frameskip: 5
 
 dinowm:
@@ -57,8 +63,16 @@ predictor:
   dropout: 0.1
   emb_dropout: 0.0
 
+videosaur:
+  NUM_SLOTS: 7 
+  SLOT_DIM: 128 
+
 predictor_lr: 5e-4
 proprio_encoder_lr: 5e-4
 action_encoder_lr: 5e-4
 
-dump_object: True
+dump_object: true
+
+
+
+
