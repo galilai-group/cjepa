@@ -21,4 +21,4 @@ torchrun --nproc_per_node=3 --master-port=29504 aloe_scripts/train.py \
   --out_dir /cs/data/people/hnam16/aloe_checkpoint \
   --slot_root_override '/cs/data/people/hnam16/data/modified_extraction/rollout_clevrer_slots_step=100000_weight03_lr1e-4_clevrer_lr0.0005_mask2_ratio0.14.pkl' \
   --fp16 --cudnn \
-  # --ddp
+  --ddp
