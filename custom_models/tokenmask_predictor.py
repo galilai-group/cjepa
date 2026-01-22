@@ -110,17 +110,17 @@ class FeedForward(nn.Module):
         return self.net(x)
 
 
-class MaskedSlotPredictor(nn.Module):
+class TokenMaskedSlotPredictor(nn.Module):
     """
     masked predictor for prediction with sporadic token-level interpolation-prone masking.
     
-    Input: (B, T, S, 64) - B: batch, T: history_length, S: num_slots, 64: slot_dim
-    Output: (B, T + num_pred, S, 64) - predicts future slots
+    Input: (B, T, S, 128) - B: batch, T: history_length, S: num_slots, 128: slot_dim
+    Output: (B, T + num_pred, S, 128) - predicts future slots
     
-    Masking Strategy (V-JEPA/V-JEPA2):
+    Masking Strategy: Token masking strategy
     - mask_ratio (N): target percentage of positions to mask (0.0 to 1.0)
     - Try to locate masked tokens not neighboring each other, which means uniformly spread
-        across (T × S) space using multiple spatiotemporal blocks.
+        across (T × S) space using multiple spatiotemporal token, like salt and pepper noise.
     - Goal : Make masking interpolation-prone.
     - This is opposite from bulk masking (contiguous region) used in VideoMAE.
 
@@ -186,40 +186,74 @@ class MaskedSlotPredictor(nn.Module):
         
     def get_masked_slots(self, x):
         """
-        V-JEPA style: Place multiple spatiotemporal blocks (bulks) randomly.
-        Each block is a continuous rectangular region in (time, slot) space.
+        Sporadic token-level interpolation-prone masking.
+        Uses stratified sampling to ensure masked tokens are uniformly spread
+        across (T × S) space, like salt and pepper noise.
         
         Args:
-            x: (B, T, S, 64)
+            x: (B, T, S, D)
         
         Returns:
-            x_masked: (B, T, S, 64) with spatiotemporal blocks replaced by mask_token
-            mask_indices: (T, S) bool array indicating which (time, slot) positions are masked
+            x_masked: (B, T, S, D) with sporadic tokens replaced by mask_token
+            mask_indices: (T, S) bool tensor indicating which (time, slot) positions are masked
         """
         B, T, S, D = x.shape
+        total_positions = T * S
+        num_masked = int(total_positions * self.mask_ratio)
         
         # Use seed for reproducibility
         rng = np.random.RandomState(self.seed)
         
+        # Stratified sampling: divide (T*S) space into equal regions
+        # and sample one position from each region to ensure uniform spread
+        if num_masked > 0:
+            region_size = total_positions / num_masked
+            selected_indices = []
+            
+            for i in range(num_masked):
+                region_start = int(i * region_size)
+                region_end = int((i + 1) * region_size)
+                # Sample one position from this region
+                idx = rng.randint(region_start, max(region_start + 1, region_end))
+                selected_indices.append(idx)
+            
+            selected_indices = np.array(selected_indices)
+        else:
+            selected_indices = np.array([], dtype=int)
         
-        return x_masked, torch.from_numpy(mask_indices).to(x.device)
+        # Create (T, S) mask from flat indices
+        mask_flat = np.zeros(total_positions, dtype=bool)
+        if len(selected_indices) > 0:
+            mask_flat[selected_indices] = True
+        mask_indices = mask_flat.reshape(T, S)
+        
+        # Apply masking: replace masked positions with learnable mask_token
+        x_masked = x.clone()
+        mask_tensor = torch.from_numpy(mask_indices).to(x.device)
+        mask_expanded = mask_tensor.unsqueeze(0).unsqueeze(-1).expand(B, T, S, D)  # (B, T, S, D)
+        
+        # Expand mask_token to match shape
+        mask_token_expanded = self.mask_token.expand(B, T, S, D)
+        
+        x_masked = torch.where(mask_expanded, mask_token_expanded, x_masked)
+        
+        return x_masked, mask_tensor
     
     def forward(self, x):
         """
         Single-pass transformer prediction using causal masking (Option 1).
         
         Args:
-            x: (B, T, S, 64) - T: history_length, S: num_slots
+            x: (B, T, S, 128) - T: history_length, S: num_slots
             return_mask_info: if True, also return (mask_indices, T) for loss computation
         
         Returns:
-            pred: (B, T+num_pred, S, 64) or (B, num_pred, S, 64) depending on causal_mask_predict
-            (optionally) mask_info: tuple of (mask_indices, num_history_frames) for selective loss
-                         mask_indices shape: (T, S) for V-JEPA style masking
+            pred: (B, T+num_pred, S, 128)
+            mask_indices shape
         """
         B, T, S, D = x.shape
         
-        # Get masked version and mask info (V-JEPA: spatiotemporal blocks)
+        # Get masked version and mask info (sporadic token-level masking)
         x_masked, mask_indices = self.get_masked_slots(x)
         
         # Create full sequence: history (masked) + future (placeholder zeros)

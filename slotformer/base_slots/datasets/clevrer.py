@@ -5,7 +5,8 @@ from PIL import Image
 import torch
 from torch.utils.data import Dataset
 
-from nerv.utils import load_obj, strip_suffix, read_img, VideoReader
+from torchcodec.decoders import VideoDecoder
+from nerv.utils import load_obj, strip_suffix, read_img
 
 from .utils import compact, BaseTransforms, anno2mask, masks_to_boxes_pad
 
@@ -72,11 +73,11 @@ class CLEVRERDataset(Dataset):
         frame_dir = strip_suffix(video_path)
         # if videos are not converted to frames, read from mp4 file
         if not os.path.isdir(frame_dir):
-            cap = VideoReader(video_path)
-            frames = [
-                cap.get_frame(start_idx + n * self.frame_offset)
-                for n in range(self.n_sample_frames)
-            ]
+            decoder = VideoDecoder(video_path, dimension_order='NHWC')
+            frame_indices = [start_idx + n * self.frame_offset 
+                             for n in range(self.n_sample_frames)]
+            # VideoDecoder returns torch.Tensor (H, W, C) in RGB, uint8
+            frames = [decoder[i].numpy() for i in frame_indices]
         # otherwise, read from saved video frames
         else:
             # wrong video length
@@ -162,8 +163,9 @@ class CLEVRERDataset(Dataset):
 
     def get_video(self, video_idx):
         video_path = self.files[video_idx]
-        cap = VideoReader(video_path)  # , to_rgb=True)
-        video = cap.read_video()
+        decoder = VideoDecoder(video_path, dimension_order='NHWC')
+        # Read all frames as numpy arrays (H, W, C) in RGB
+        video = [decoder[i].numpy() for i in range(len(decoder))]
         # corrupted video
         if len(video) != self.video_len or any(img is None for img in video):
             data_dict = self._rand_another(is_video=True)

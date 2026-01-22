@@ -55,6 +55,8 @@ def main(params):
         info = params.slots_root.split('/')[-1][:-4]
     elif 'savi' in args.params:
         info = 'savi'
+    elif 'slotformer' in args.params:
+        info = f'slotformer_{params.img_recon_loss_w}'
     ckp_path = os.path.join(args.out_dir, exp_name, info)
 
     print(f'INFO: local rank is {args.local_rank}, use_ddp={args.ddp}')
@@ -115,6 +117,7 @@ if __name__ == "__main__":
     parser.add_argument('--ddp', action='store_true', help='DDP training')
     parser.add_argument('--cudnn', action='store_true', help='cudnn benchmark')
     parser.add_argument('--local_rank', type=int, default=0)
+    parser.add_argument('--slot_root_override', type=str, default=None, help='override the slot root in params')
     args = parser.parse_args()
 
     # import `build_dataset/model/method` function according to `args.task`
@@ -133,6 +136,8 @@ if __name__ == "__main__":
     params = importlib.import_module(os.path.basename(args.params))
     params = params.SlotFormerParams()
     params.ddp = args.ddp
+    if args.slot_root_override is not None:
+        params.slots_root = args.slot_root_override
 
     if args.fp16:
         print('INFO: using FP16 training!')

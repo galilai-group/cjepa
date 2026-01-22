@@ -5,8 +5,8 @@ class SlotFormerParams(BaseParams):
     project = 'SlotFormer'
 
     # training settings
-    gpus = 4  # 2 GPUs should also be good
-    max_epochs = 80  # ~450k steps
+    gpus = 2  # 2 GPUs should also be good
+    max_epochs = 30  # ~450k steps
     save_interval = 0.25  # save every 0.25 epoch
     eval_interval = 4  # evaluate every 4 epochs
     save_epoch_end = True  # save ckp at the end of every epoch
@@ -21,15 +21,15 @@ class SlotFormerParams(BaseParams):
 
     # data settings
     dataset = 'clevrer_slots'
-    data_root = './data/CLEVRER'
-    slots_root = './data/CLEVRER/clevrer_slots.pkl'
+    data_root = '/cs/data/people/hnam16/data/clevrer_for_savi'
+    slots_root = '/cs/data/people/hnam16/data/modified_extraction/clevrer_savi_reproduced.pkl'
     n_sample_frames = 6 + 10  # 6 burn-in, 10 rollout
     frame_offset = 2  # subsample the video by a factor of 2
     load_img = True
     filter_enter = True  # only train on valid sequences
-    train_batch_size = 128 // gpus
+    train_batch_size = 32
     val_batch_size = train_batch_size * 2
-    num_workers = 8
+    num_workers = 8  # 8 causes hanging due to multiprocessing deadlock with CUDA
 
     # model configs
     model = 'SlotFormer'
@@ -64,14 +64,14 @@ class SlotFormerParams(BaseParams):
         dec_resolution=(8, 8),
         dec_ks=5,
         dec_norm='',
-        dec_ckp_path='pretrained/stosavi_clevrer_params/model_12.pth',
+        dec_ckp_path='/cs/data/people/hnam16/savi_pretrained/clevrer_savi_reproduce_20260109_102641_LR0.0001/savi/epoch/model_8.pth',
     )
 
     # loss configs
     loss_dict = dict(
         rollout_len=n_sample_frames - rollout_dict['history_len'],
-        use_img_recon_loss=True,  # important for predicted image quality
+        use_img_recon_loss=False,  # important for predicted image quality
     )
 
     slot_recon_loss_w = 1.
-    img_recon_loss_w = 1.
+    img_recon_loss_w = 0.

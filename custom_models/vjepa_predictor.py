@@ -326,3 +326,142 @@ class MaskedSlotPredictor(nn.Module):
         output = self.to_out(output)  # (B, T+num_pred, S, D)
         return output[:, T:, :, :]
     
+
+class MaskedSlot_AP_Predictor(MaskedSlotPredictor):
+    """
+    V-JEPA style predictor for masked slot prediction with spatiotemporal block masking.
+    
+    Input: (B, T, S, 64) - B: batch, T: history_length, S: num_slots, 64: slot_dim
+    Output: (B, T + num_pred, S, 64) - predicts future slots
+    
+    Masking Strategy (V-JEPA/V-JEPA2):
+    - M spatiotemporal blocks (bulks) are randomly placed
+    - Block sizes are automatically calculated to achieve N% masking ratio
+    - num_mask_blocks (M): controls how many blocks to place
+    - mask_ratio (N): target percentage of positions to mask (0.0 to 1.0)
+    - Blocks can overlap, creating diverse masking patterns
+    
+    Example: num_mask_blocks=3, mask_ratio=0.5
+      → 3 blocks placed to cover ~50% of (T × S) positions
+    
+    cfg.causal_mask_predict: if True, predict masked positions; if False, only predict future
+    """
+    
+    def __init__(
+        self,
+        num_slots: int,
+        slot_dim: int = 64,
+        num_frames: int = 3,
+        num_pred: int = 1,
+        num_mask_blocks: int = 2,  # M: Number of spatiotemporal blocks to mask
+        mask_ratio: float = 0.5,   # N: Target masking ratio (0.0 to 1.0)
+        depth: int = 6,
+        heads: int = 8,
+        dim_head: int = 64,
+        mlp_dim: int = 2048,
+        dropout: float = 0.1,
+        emb_dropout: float = 0.0,
+        causal_mask_predict: bool = True,
+        seed: int = 42,
+    ):
+        super().__init__(
+            num_slots=num_slots,
+            slot_dim=slot_dim,
+            num_frames=num_frames,
+            num_pred=num_pred,
+            num_mask_blocks=num_mask_blocks,
+            mask_ratio=mask_ratio,
+            depth=depth,
+            heads=heads,
+            dim_head=dim_head,
+            mlp_dim=mlp_dim,
+            dropout=dropout,
+            emb_dropout=emb_dropout,
+            causal_mask_predict=causal_mask_predict,
+            seed=seed,  
+        )
+    
+
+        
+        # Calculate block sizes to achieve target mask_ratio with num_mask_blocks blocks
+        # Since blocks can overlap, we use a larger block size than simple division
+        total_positions = num_frames * (num_slots-2)
+        target_masked_positions = int(total_positions * mask_ratio)
+        
+        # Use larger blocks to account for potential overlaps
+        # Heuristic: each block should cover slightly more to reach target despite overlaps
+        overlap_factor = 1.5  # Assume some overlap, so make blocks bigger
+        positions_per_block = max(1, int(target_masked_positions * overlap_factor / num_mask_blocks))
+        
+        # Calculate block dimensions (try to make them roughly square/rectangular)
+        # Prefer temporal dimension to be smaller than spatial for video data
+        aspect_ratio = (num_slots-2) / num_frames  # S/T ratio
+        block_area = positions_per_block
+        
+        self.temporal_block_size = max(1, int(np.sqrt(block_area / aspect_ratio)))
+        self.spatial_block_size = max(1, int(block_area / self.temporal_block_size)-1)
+        
+        # Ensure blocks don't exceed dimensions
+        self.temporal_block_size = min(self.temporal_block_size, num_frames)
+        self.spatial_block_size = min(self.spatial_block_size, num_slots)
+        
+        # Positional embedding for time axis only (slots are permutable)
+        # Shape: (1, T + num_pred, slot_dim)
+        self.time_pos_embedding = nn.Parameter(
+            torch.randn(1, num_frames + num_pred, slot_dim)
+        )
+        self.dropout = nn.Dropout(emb_dropout)
+        
+        # Transformer backbone
+        self.transformer = Transformer(
+            dim=slot_dim,
+            depth=depth,
+            heads=heads,
+            dim_head=dim_head,
+            mlp_dim=mlp_dim,
+            dropout=dropout,
+            num_patches=num_slots,
+            num_frames=num_frames + num_pred,
+        )
+        
+        # Output projection
+        self.to_out = nn.Linear(slot_dim, slot_dim)
+        
+        # Mask token (learnable)
+        self.mask_token = nn.Parameter(torch.randn(1, 1, slot_dim))
+
+    def get_masked_slots(self, x):
+
+        B, T, S, D = x.shape
+        
+        # Use seed for reproducibility
+        rng = np.random.RandomState(self.seed)
+        
+        # Initialize mask matrix
+        mask_indices = np.zeros((T, S), dtype=bool)
+        masked_blocks = []
+        
+        # Place multiple spatiotemporal blocks
+        for _ in range(self.num_mask_blocks):
+            # Randomly select block anchor point (top-left corner)
+            # Ensure block fits within boundaries
+            t_start = rng.randint(0, max(1, T - self.temporal_block_size + 1))
+            s_start = rng.randint(0, max(1, S -2 - self.spatial_block_size + 1))
+            
+            # Determine actual block size (handle edge cases)
+            t_size = min(self.temporal_block_size, T - t_start)
+            s_size = min(self.spatial_block_size, S -2 - s_start)
+            
+            # Mark this block region as masked
+            mask_indices[t_start:t_start+t_size, s_start:s_start+s_size] = True
+            
+            masked_blocks.append((t_start, s_start, t_size, s_size))
+        
+        # Apply masking to all positions marked in mask_indices
+        x_masked = x.clone()
+        for t in range(T):
+            for s in range(S):
+                if mask_indices[t, s]:
+                    x_masked[:, t, s, :] = self.mask_token  # (1, 1, D) broadcasts to (B, D)
+        
+        return x_masked, torch.from_numpy(mask_indices).to(x.device), masked_blocks

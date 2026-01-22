@@ -1,0 +1,114 @@
+# OCVP (Object-Centric Video Prediction) Training Config for CLEVRER
+# Based on: "Object-Centric Video Prediction via Decoupling of Object Dynamics and Interactions"
+
+defaults:
+  - _self_
+  - override hydra/hydra_logging: disabled
+  - override hydra/job_logging: disabled
+
+hydra:
+  output_subdir: null
+  run:
+    dir: .
+
+# ============================================================================
+# Wandb Logging
+# ============================================================================
+wandb:
+  enable: true
+  project: ocvp
+  entity: heejeong_nam-brown-university
+  name: ocvp_clevrer
+
+# ============================================================================
+# SAVi / StoSAVi Backbone Configuration
+# ============================================================================
+savi:
+  weight: /cs/data/people/hnam16/savi_pretrained/clevrer_savi_reproduce_20260109_102641_LR0.0001/savi/epoch/model_8.pth
+  params: slotformer/base_slots/configs/stosavi_clevrer_params.py
+  num_slots: 7
+  slot_dim: 128
+
+# ============================================================================
+# Dataset Configuration
+# ============================================================================
+dataset_name: clevrer
+data_root: /cs/data/people/hnam16/data/clevrer_for_savi
+cache_dir: /cs/data/people/hnam16/.stable_worldmodel
+
+# ============================================================================
+# Training Configuration
+# ============================================================================
+trainer:
+  max_epochs: 30
+  devices: auto
+  accelerator: gpu
+  precision: 16-mixed
+  log_every_n_steps: 10
+  val_check_interval: 1.0  # validate every epoch
+
+batch_size: 64
+num_workers: 8
+seed: 42
+
+# ============================================================================
+# Video / Frame Configuration  
+# ============================================================================
+image_size: 64
+frameskip: 2  # subsample video by factor of 2
+
+# History and prediction lengths
+num_context: 6      # number of context/history frames
+num_preds: 10       # number of future frames to predict
+n_steps: ${eval:'${num_context} + ${num_preds}'}  # total frames per clip = 16
+
+# ============================================================================
+# OCVP Predictor Configuration
+# ============================================================================
+ocvp:
+  # Predictor type: "ocvp_seq" (sequential) or "ocvp_par" (parallel)
+  predictor_type: ocvp_seq
+  
+  # Transformer architecture
+  token_dim: 128        # internal token dimension
+  hidden_dim: 256       # FFN hidden dimension
+  num_layers: 2         # number of transformer layers
+  n_heads: 4            # number of attention heads
+  residual: true        # use residual connection around predictor
+  input_buffer_size: 6  # max buffer size for autoregressive prediction
+
+# ============================================================================
+# Loss Configuration
+# ============================================================================
+loss:
+  # Slot prediction loss (MSE on predicted vs target slots)
+  pred_slot_weight: 1.0
+  
+  # Image reconstruction loss (MSE on decoded images vs target images)
+  # Set to 0.0 to disable image reconstruction (faster training, no decoder needed)
+  pred_img_weight: 0
+
+# ============================================================================
+# Optimizer Configuration
+# ============================================================================
+optimizer:
+  type: AdamW
+  lr: 1e-4
+  weight_decay: 0.0
+
+scheduler:
+  type: cosine
+  warmup_epochs: 5
+  min_lr: 1e-6
+
+# ============================================================================
+# Checkpoint & Output
+# ============================================================================
+output_dir: /cs/data/people/hnam16/ocvp_checkpoints
+output_model_name: ocvp_clevrer
+
+# Resume training from checkpoint (empty string to start fresh)
+resume_from: ""
+
+# Save checkpoint every N epochs
+save_every_n_epochs: 5

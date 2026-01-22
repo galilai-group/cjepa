@@ -16,10 +16,8 @@ from omegaconf import OmegaConf
 from torch.nn import functional as F
 from tqdm import tqdm
 import wandb
-from custom_models.cjepa_predictor import MaskedSlotPredictor
-from custom_models.dinowm_oc import OCWM
-from videosaur.videosaur import models
-from einops import rearrange
+from custom_models.tokenmask_predictor import TokenMaskedSlotPredictor
+
 import pickle as pkl
 import numpy as np
 
@@ -164,20 +162,20 @@ def get_data(cfg, is_ddp, world_size, rank):
 # Model Architecture
 # ============================================================================
 def get_world_model(cfg):
-    """
-    Build world model: masked slot predictor with action/proprio encoders.
-    
-    Unlike train_causalwm.py, we don't need the DINO encoder and slot attention
-    since we're using pre-extracted slots. However, we create placeholder modules
-    to maintain checkpoint compatibility.
-    """
-    slot_dim = cfg.videosaur.SLOT_DIM
-    num_slots = cfg.videosaur.NUM_SLOTS
-    return swm.wm.dinowm.CausalPredictor(
-        num_patches=num_slots,
-        num_frames=cfg.dinowm.history_size,
-        dim=slot_dim,
-        **cfg.predictor,
+    """Build world model: masked slot predictor."""
+
+    return TokenMaskedSlotPredictor(
+        num_slots=cfg.videosaur.NUM_SLOTS,  # S: number of slots
+        slot_dim=cfg.videosaur.SLOT_DIM,  # 64 or higher if action/proprio included
+        num_frames=cfg.dinowm.history_size,  # T: history length
+        num_pred=cfg.dinowm.num_preds,  # number of future frames to predict
+        mask_ratio=cfg.get("mask_ratio", 0.5),  # N: target masking ratio
+        seed=cfg.seed,  # for reproducible masking
+        depth=cfg.predictor.get("depth", 6),
+        heads=cfg.predictor.get("heads", 16),
+        dim_head=cfg.predictor.get("dim_head", 64),
+        mlp_dim=cfg.predictor.get("mlp_dim", 2048),
+        dropout=cfg.predictor.get("dropout", 0.1),
     )
 
 
@@ -191,7 +189,7 @@ def setup_wandb(cfg, rank):
 
     wandb_run_id = cfg.wandb.get("run_id", None)
     wandb.init(
-        name=cfg.wandb.get("name", "causalwm_from_slot"),
+        name=cfg.wandb.get("name", "vjepawm_from_slot"),
         project=cfg.wandb.project,
         entity=cfg.wandb.entity,
         resume="allow" if wandb_run_id else None,
@@ -203,22 +201,65 @@ def setup_wandb(cfg, rank):
 
 def compute_loss(predictor, batch, cfg, device, inference=False):
     """Compute loss for a batch."""
-    batch["embed"] = batch["embed"].to(device)  # (B, T, S, D)
+    embed = batch["embed"].to(device)  # (B, T, S, D)
 
     # Split into history and target
-    embedding = batch["embed"][:, : cfg.dinowm.history_size, :, :] 
-    T = embedding.shape[1]
-    embedding = rearrange(embedding, "b t p d -> b (t p) d")
-    preds = predictor(embedding)
-    preds = rearrange(preds, "b (t p) d -> b t p d", t=T)
-    # pred_embedding = predictor(embedding)
-    target_embedding = batch["embed"][:, cfg.dinowm.num_preds :, :, :]  # (B, T-1, patches, dim)
+    history = embed[:, :cfg.dinowm.history_size, :, :]  # (B, history_size, S, D)
+    target = embed[:, cfg.dinowm.history_size:cfg.dinowm.history_size + cfg.dinowm.num_preds, :, :]  # (B, num_preds, S, D)
 
-    # Compute pixel latent prediction loss
-    # pixels_dim = batch["pixels_embed"].shape[-1]
-    loss= F.mse_loss(preds, target_embedding.detach())
+    # Forward pass
+    if inference:
+        pred_output = predictor.inference(history) # only future prediction
+        # Loss on future prediction
+        loss_future = F.mse_loss(pred_output, target.detach())
 
-    return  {"loss": loss}
+        losses = {}
+        losses["loss_future"] = loss_future
+
+        loss_masked_history = torch.tensor(0.0, device=device)
+        losses["loss_masked_history"] = loss_masked_history
+
+        # Total loss
+        total_loss = loss_masked_history + loss_future
+        losses["loss"] = total_loss
+        
+    else:
+        pred_output = predictor(history)
+        pred_embedding, mask_indices = pred_output
+
+        # pred_embedding: (B, history_size + num_preds, S, D)
+        pred_history = pred_embedding[:, :cfg.dinowm.history_size, :, :]
+        pred_future = pred_embedding[:, cfg.dinowm.history_size:cfg.dinowm.history_size + cfg.dinowm.num_preds, :, :]
+
+        losses = {}
+
+        # if you want 0% mask, do it in cjepa
+        # mask indices shape : (T, S)
+        B, T, S, D = pred_history.shape
+        pred_history_flatten = pred_history.view(B, T * S, D)
+        history_flatten = history.view(B, T * S, D)
+        mask_flat = mask_indices.view(T * S)
+
+        pred_history_masked = pred_history_flatten[:, mask_flat, :]
+        history_masked = history_flatten[:, mask_flat, :]
+        loss_masked_history = F.mse_loss(pred_history_masked, history_masked.detach())
+        losses["loss_masked_history"] = loss_masked_history
+
+        # loss_masked_history = F.mse_loss(
+        #     pred_history[:, :, mask_indices, :],
+        #     history[:, :, mask_indices, :].detach()
+        # )
+
+
+        # Loss on future prediction
+        loss_future = F.mse_loss(pred_future, target.detach())
+        losses["loss_future"] = loss_future
+
+        # Total loss
+        total_loss = loss_masked_history + loss_future
+        losses["loss"] = total_loss
+
+    return losses
 
 
 @torch.no_grad()
@@ -226,24 +267,34 @@ def validate(predictor, val_loader, cfg, device, world_size):
     """Run validation and return average loss."""
     predictor.eval()
     total_loss = 0.0
+    total_loss_future = 0.0
+    total_loss_masked = 0.0
     num_batches = 0
 
     for batch in val_loader:
         losses = compute_loss(predictor, batch, cfg, device, inference=True)
         total_loss += losses["loss"].item()
+        total_loss_future += losses["loss_future"].item()
+        total_loss_masked += losses["loss_masked_history"].item()
         num_batches += 1
 
     # Average across batches
     avg_loss = total_loss / max(num_batches, 1)
+    avg_loss_future = total_loss_future / max(num_batches, 1)
+    avg_loss_masked = total_loss_masked / max(num_batches, 1)
 
     # Reduce across processes if DDP
     if world_size > 1:
-        loss_tensor = torch.tensor([avg_loss, num_batches], device=device)
+        loss_tensor = torch.tensor([avg_loss, avg_loss_future, avg_loss_masked, num_batches], device=device)
         dist.all_reduce(loss_tensor, op=dist.ReduceOp.SUM)
         avg_loss = loss_tensor[0].item() / world_size
+        avg_loss_future = loss_tensor[1].item() / world_size
+        avg_loss_masked = loss_tensor[2].item() / world_size
 
     return {
         "val/loss": avg_loss,
+        "val/loss_future": avg_loss_future,
+        "val/loss_masked_history": avg_loss_masked,
     }
 
 
@@ -304,10 +355,10 @@ def rollout_video_slots(predictor, pre_slots, cfg, device, batch_size=None):
 
         for off_idx in range(frameskip):
             # Start position for history (subsampled)
-            start = OBS_FRAMES - pred_len * frameskip + off_idx
+            start = OBS_FRAMES - history_len * frameskip + off_idx
 
             # Extract history with frameskip: [B, history_len, N, C]
-            history_indices = list(range(start, OBS_FRAMES, frameskip))[:history_len]
+            history_indices = list(range(start, OBS_FRAMES, frameskip))
             history = extended_slots[:, history_indices, :, :]  # [B, history_len, N, C]
 
             # Calculate how many autoregressive steps needed
@@ -318,11 +369,7 @@ def rollout_video_slots(predictor, pre_slots, cfg, device, batch_size=None):
 
             while len(pred_frames_list) < num_pred_frames_needed:
                 # Predict next pred_len frames: [B, pred_len, N, C]
-                # pred = predictor(current_history)
-                T = current_history.shape[1]
-                current_history = rearrange(current_history, "b t p d -> b (t p) d")
-                preds = predictor(current_history)
-                pred = rearrange(preds, "b (t p) d -> b t p d", t=T)
+                pred = predictor.inference(current_history)
                 pred_frames_list.append(pred)
 
                 # Update history: shift by pred_len and append predictions
@@ -360,7 +407,7 @@ def rollout_video_slots(predictor, pre_slots, cfg, device, batch_size=None):
 # ============================================================================
 # Main Entry Point
 # ============================================================================
-@hydra.main(version_base=None, config_path="../configs", config_name="config_train_oc_clevrer_slot")
+@hydra.main(version_base=None, config_path="../configs", config_name="config_train_vjepa_clevrer_slot")
 def run(cfg):
     """Run training of predictor"""
 
@@ -375,7 +422,10 @@ def run(cfg):
     cache_dir = swm.data.utils.get_cache_dir() if cfg.cache_dir is None else cfg.cache_dir
 
     # Setup wandb (only on main process)
-    wandb_logger = setup_wandb(cfg, rank)
+    if not cfg.rollout.rollout_only:
+        wandb_logger = setup_wandb(cfg, rank)
+    else:
+        wandb_logger = None
 
     # Get data
     train_loader, val_loader, data, train_sampler = get_data(cfg, is_ddp, world_size, rank)
@@ -395,6 +445,31 @@ def run(cfg):
     # Setup optimizer
     model_params = predictor.module.parameters() if is_ddp else predictor.parameters()
     optimizer = torch.optim.AdamW(model_params, lr=cfg.predictor_lr)
+
+    # Load checkpoint if specified
+    start_epoch = 0
+    if cfg.get("load_checkpoint", False) and cfg.get("ckpt_path", None):
+        checkpoint_path = cfg.ckpt_path
+        map_location = {'cuda:%d' % 0: 'cuda:%d' % local_rank} if torch.cuda.is_available() else 'cpu'
+        state_dict = torch.load(checkpoint_path, map_location=map_location)
+        
+        # Load model state (legacy format: just state_dict)
+        if is_ddp:
+            predictor.module.load_state_dict(state_dict)
+        else:
+            predictor.load_state_dict(state_dict)
+        
+        # Extract epoch from filename: {name}_epoch_{N}_predictor.ckpt -> N
+        try:
+            start_epoch = int(checkpoint_path.split('/')[-1].split('_epoch_')[1].split('_')[0])
+        except (IndexError, ValueError):
+            logging.warning("Could not extract epoch from checkpoint filename, starting from 0")
+            start_epoch = 0
+        
+        if is_main_process(rank):
+            logging.info(f"Loaded checkpoint from {checkpoint_path}")
+            logging.info(f"Resuming training from epoch {start_epoch}")
+            logging.info(f"Using lr={cfg.predictor_lr} (constant lr, no scheduler)")
 
     if cfg.rollout.get("rollout_only", False):
         # Load checkpoint for rollout only
@@ -449,16 +524,17 @@ def run(cfg):
         return
     # Training loop
     log_every_n_epochs = cfg.get("log_every_n_epochs", 1)
-    global_step = 0
+    global_step = start_epoch * len(train_loader)  # Adjust global step based on start epoch
 
-    for epoch in range(cfg.trainer.max_epochs):
+    for epoch in range(start_epoch, cfg.trainer.max_epochs):
         # Set epoch for distributed sampler
         if train_sampler is not None:
             train_sampler.set_epoch(epoch)
 
         predictor.train()
         epoch_loss = 0.0
-
+        epoch_loss_future = 0.0
+        epoch_loss_masked = 0.0
         num_batches = 0
 
         pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}", disable=not is_main_process(rank))
@@ -477,28 +553,34 @@ def run(cfg):
 
             # Accumulate metrics
             epoch_loss += losses["loss"].item()
-
+            epoch_loss_future += losses["loss_future"].item()
+            epoch_loss_masked += losses["loss_masked_history"].item()
             num_batches += 1
             global_step += 1
 
             # Update progress bar
             pbar.set_postfix({
                 "loss": f"{losses['loss'].item():.4f}",
+                "future": f"{losses['loss_future'].item():.4f}",
             })
 
             # Log to wandb (every N steps)
             if wandb_logger is not None and global_step % cfg.get("log_every_n_steps", 10) == 0:
                 wandb_logger.log({
                     "train/loss": losses["loss"].item(),
+                    "train/loss_future": losses["loss_future"].item(),
+                    "train/loss_masked_history": losses["loss_masked_history"].item(),
                     "train/step": global_step,
                     "train/epoch": epoch,
                 })
 
         # Epoch-level metrics
         avg_train_loss = epoch_loss / max(num_batches, 1)
+        avg_train_loss_future = epoch_loss_future / max(num_batches, 1)
+        avg_train_loss_masked = epoch_loss_masked / max(num_batches, 1)
 
         if is_main_process(rank):
-            logging.info(f"Epoch {epoch+1}: Train Loss: {avg_train_loss:.4f}")
+            logging.info(f"Epoch {epoch+1}: Train Loss: {avg_train_loss:.4f}, Future: {avg_train_loss_future:.4f}, Masked: {avg_train_loss_masked:.4f}")
 
         # Validation
         if (epoch + 1) % log_every_n_epochs == 0:
@@ -514,6 +596,8 @@ def run(cfg):
                     wandb_logger.log({
                         **val_metrics,
                         "train/epoch_loss": avg_train_loss,
+                        "train/epoch_loss_future": avg_train_loss_future,
+                        "train/epoch_loss_masked_history": avg_train_loss_masked,
                         "epoch": epoch + 1,
                     })
 
@@ -531,39 +615,39 @@ def run(cfg):
         torch.save(state_dict, final_path)
         logging.info(f"Saved final model to {final_path}")
 
-    # # Rollout slots (only on main process)
-    # if cfg.rollout.get("save_rollout", False) and is_main_process(rank):
-    #     logging.info("Starting slot rollout (128 -> 160 frames)...")
+    # Rollout slots (only on main process)
+    if cfg.rollout.get("save_rollout", False) and is_main_process(rank):
+        logging.info("Starting slot rollout (128 -> 160 frames)...")
 
-    #     # Use the model without DDP wrapper for inference
-    #     predictor_for_rollout = predictor.module if is_ddp else predictor
-    #     predictor_for_rollout.eval()
+        # Use the model without DDP wrapper for inference
+        predictor_for_rollout = predictor.module if is_ddp else predictor
+        predictor_for_rollout.eval()
 
-    #     rollout_data = {}
+        rollout_data = {}
 
-    #     for split in ["train", "val", "test"]:
-    #         if split not in data:
-    #             logging.warning(f"Split '{split}' not found in data, skipping...")
-    #             continue
+        for split in ["train", "val", "test"]:
+            if split not in data:
+                logging.warning(f"Split '{split}' not found in data, skipping...")
+                continue
 
-    #         logging.info(f"Processing {split} split...")
-    #         rollout_data[split] = rollout_video_slots(
-    #             predictor_for_rollout, data[split], cfg, device, batch_size=cfg.rollout.get("rollout_batch_size", None)
-    #         )
-    #         logging.info(f"Finished {split}: {len(rollout_data[split])} videos")
+            logging.info(f"Processing {split} split...")
+            rollout_data[split] = rollout_video_slots(
+                predictor_for_rollout, data[split], cfg, device, batch_size=cfg.rollout.get("rollout_batch_size", None)
+            )
+            logging.info(f"Finished {split}: {len(rollout_data[split])} videos")
 
-    #     # Save rollout data
-    #     embedding_path = Path(cfg.embedding_dir)
-    #     rollout_filename = f"rollout_{str(embedding_path.name)[:-4]}_lr{cfg.predictor_lr}_mask{cfg.num_masked_slots}.pkl"
-    #     rollout_path = embedding_path.parent / rollout_filename
+        # Save rollout data
+        embedding_path = Path(cfg.embedding_dir)
+        rollout_filename = f"rollout_{str(embedding_path.name)[:-4]}_lr{cfg.predictor_lr}_mask{cfg.num_masked_slots}.pkl"
+        rollout_path = embedding_path.parent / rollout_filename
 
-    #     with open(rollout_path, "wb") as f:
-    #         pkl.dump(rollout_data, f)
+        with open(rollout_path, "wb") as f:
+            pkl.dump(rollout_data, f)
 
-    #     logging.info(f"Saved rollout slots to {rollout_path}")
+        logging.info(f"Saved rollout slots to {rollout_path}")
 
-    #     if wandb_logger is not None:
-    #         wandb_logger.log({"rollout/path": str(rollout_path)})
+        if wandb_logger is not None:
+            wandb_logger.log({"rollout/path": str(rollout_path)})
 
     # Cleanup
     if wandb_logger is not None:

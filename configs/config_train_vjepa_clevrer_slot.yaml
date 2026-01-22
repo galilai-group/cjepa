@@ -19,6 +19,9 @@ embedding_dir: '/cs/data/people/hnam16/data/modified_extraction/clevrer_slots_st
 cache_dir: "/cs/data/people/hnam16/.stable_worldmodel"
 
 
+load_checkpoint: false  # or false
+ckpt_path: "/path/to/model_epoch_50_predictor.ckpt"
+
 rollout:
   save_rollout: true
   rollout_batch_size: 64
