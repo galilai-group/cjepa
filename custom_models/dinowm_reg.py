@@ -48,8 +48,7 @@ class DINOWM_REG(torch.nn.Module):
         action_key=None,
     ):
         assert target not in info, f"{target} key already in info_dict"
-
-        emb_keys = [action_key, proprio_key]
+        emb_keys = [proprio_key, action_key]
         prefix = prefix or ""
 
         # == pixels embeddings
@@ -66,7 +65,7 @@ class DINOWM_REG(torch.nn.Module):
         embedding = pixels_embed
         info[f"pixels_{target}"] = pixels_embed
 
-        for key in emb_keys:
+        for key in [proprio_key, action_key]: # always in this order
             if key == "proprio":
                 extr_enc = self.proprio_encoder
             elif key == "action":
@@ -124,7 +123,7 @@ class DINOWM_REG(torch.nn.Module):
 
         # == extra embeddings
         start_dim = pixel_dim
-        for i, key in enumerate(["action", "proprio"]):
+        for i, key in enumerate(["proprio", "action"]):
             dim = extra_dims[i]
             extra_emb = embedding[..., start_dim : start_dim + dim]
             split_embed[f"{key}_embed"] = extra_emb[:, :, :, 0]  # all patches are the same
@@ -138,12 +137,27 @@ class DINOWM_REG(torch.nn.Module):
         n_patches = embedding.shape[3]
         B, N = act.shape[:2]
         act_flat = rearrange(act, "b n ... -> (b n) ...")
-        z_act = self.action_encoder(act_flat)  # (B, T, A_emb)
+        z_act = self.action_encoder(act_flat)  # (B*N, T, A_emb)
         action_dim = z_act.shape[-1]
         act_tiled = repeat(z_act.unsqueeze(2), "(b n) t 1 a -> b n t p a", b=B, n=N, p=n_patches)
-        # z (B, N, T, P, d) with d = dim + proprio_emb_dim + action_emb_dim
-        # replace the last 'action_emb_dim' dims of z with the action embeddings
-        new_embedding = torch.cat([embedding[..., :-action_dim], act_tiled], dim=-1)
+        # z (B, N, T, P, d) with d = dim + extra_dims
+        # determine where action starts in the embedding
+        extra_dim = sum(encoder.emb_dim for encoder in [self.proprio_encoder, self.action_encoder])
+        pixel_dim = embedding.shape[-1] - extra_dim
+
+        start = pixel_dim + self.proprio_encoder.emb_dim
+        # for key, encoder in self.extra_encoders.items():
+        #     if key == "action":
+        #         break
+        #     start += encoder.emb_dim
+
+        prefix = embedding[..., :start]
+        suffix = embedding[..., start + action_dim :]
+
+        new_embedding = torch.cat([prefix, act_tiled, suffix], dim=-1)
+
+        # embedding[..., start : start + action_dim] = act_tiled
+        # return embedding
         return new_embedding
 
     def rollout(self, info, action_sequence):
@@ -159,13 +173,14 @@ class DINOWM_REG(torch.nn.Module):
         """
 
         assert "pixels" in info, "pixels not in info_dict"
-        n_obs = info["pixels"].shape[2]
         proprio_key = "proprio" if "proprio" in info else None
-        emb_keys = [proprio_key] if proprio_key in info else []        
+        emb_keys = [proprio_key] if proprio_key in info else []
+        
         # == add action to info dict
+
+        n_obs = info["pixels"].shape[2]
         act_0 = action_sequence[:, :, :n_obs]
         info["action"] = act_0
-
         # check if we have already computed the initial embedding for this state
         if (
             hasattr(self, "_init_cached_info")
@@ -178,8 +193,7 @@ class DINOWM_REG(torch.nn.Module):
             init_info_dict = {}
             for k, v in info.items():
                 if torch.is_tensor(v):
-                    # goal is the same across samples so we will only embed it once
-                    init_info_dict[k] = info[k][:, 0]  # (B, 1, ...)
+                    init_info_dict[k] = info[k][:, 0]  # (B, T_history, ...)
 
             init_info_dict = self.encode(
                 init_info_dict,
@@ -230,6 +244,7 @@ class DINOWM_REG(torch.nn.Module):
         z = info["embed"]
         B, N = z.shape[:2]
 
+
         # we flatten B and N to process all candidates in a single batch in the predictor
         z_flat = rearrange(z, "b n ... -> (b n) ...").clone()
         act_pred_flat = rearrange(act_pred, "b n ... -> (b n) ...")
@@ -249,12 +264,17 @@ class DINOWM_REG(torch.nn.Module):
         pred_embed = self.predict(z_flat[:, -self.history_size :])[:, -1:]  # (B, 1, P, D)
         z_flat = torch.cat([z_flat, pred_embed], dim=1)
         z = rearrange(z_flat, "(b n) ... -> b n ...", b=B, n=N)
+
         # == update info dict with predicted embeddings
         info["predicted_embedding"] = z
 
-        action_dim = 0 if "action_embed" not in info else info["action_embed"].shape[-1]
-        proprio_dim = 0 if "proprio_embed" not in info else info["proprio_embed"].shape[-1]
-        extra_dims = [action_dim, proprio_dim]
+        # Extract embedding components for cost computation
+        extra_dims = []
+        # proprio first
+        if self.proprio_encoder is not None:
+            extra_dims.append(info["proprio_embed"].shape[-1])
+        if self.action_encoder is not None:
+            extra_dims.append(self.action_encoder.emb_dim)
 
         splitted_embed = self.split_embedding(z, extra_dims)
         info.update({f"predicted_{k}": v for k, v in splitted_embed.items()})
