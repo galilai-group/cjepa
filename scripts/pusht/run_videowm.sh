@@ -19,11 +19,11 @@ export PYTHONPATH=$(pwd)
 torchrun --nproc_per_node=4 --master-port=29503 \
     train/train_videowm.py \
     cache_dir="/cs/data/people/hnam16/.stable_worldmodel" \
-    output_model_name="193" \
+    output_model_name="221" \
     dataset_name="pusht_expert" \
     num_workers=8 \
     batch_size=64 \
-    trainer.max_epochs=30 \
+    trainer.max_epochs=10 \
     predictor_lr=5e-4 \
     proprio_encoder_lr=5e-4 \
     action_encoder_lr=5e-4 \

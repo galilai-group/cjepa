@@ -506,7 +506,7 @@ def run(cfg):
 
         # Save rollout data
         embedding_path = Path(cfg.embedding_dir)
-        rollout_filename = f"rollout_{str(embedding_path.name)[:-4]}_lr{cfg.predictor_lr}_mask{cfg.num_masked_blocks}_ratio{cfg.mask_ratio}.pkl"
+        rollout_filename = f"rollout_{str(embedding_path.name)[:-4]}_lr{cfg.predictor_lr}_tokenmask_ratio{cfg.mask_ratio}.pkl"
         rollout_path = embedding_path.parent / rollout_filename
 
         with open(rollout_path, "wb") as f:

@@ -350,19 +350,7 @@ def run(cfg):
     # Setup RankMe callback for monitoring predictor embedding quality
     num_patches = (cfg.image_size // cfg.patch_size) ** 2
     callbacks = [dump_object_callback]
-    if cfg.get("monitor_rankme", False):
-        # RankMe uses a queue to track embeddings and compute effective rank
-        rankme_callback = spt.callbacks.RankMe(
-            name="rankme/predictor",
-            target="predictor_embed",
-            queue_length=cfg.get("rankme_queue_length", 2048),
-            target_shape=num_patches * 64,  # S * D flattened
-        )
-        callbacks.append(rankme_callback)
-        logging.info(
-            f"RankMe monitoring enabled (queue_length={cfg.get('rankme_queue_length', 2048)}, "
-            f"target_shape={num_patches * 64})" # numpatches 
-        )
+
     trainer = pl.Trainer(
         **cfg.trainer,
         callbacks=callbacks,
