@@ -16,8 +16,8 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from transformers import AutoModel
 import wandb
-from custom_models.dinowm import DINOWM
-from custom_models.custom_codes.custom_dataset import ClevrerVideoDataset
+from model.dinowm import DINOWM
+from model.custom_codes.custom_dataset import ClevrerVideoDataset
 
 
 

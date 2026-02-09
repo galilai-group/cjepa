@@ -28,11 +28,11 @@ from loguru import logger as logging
 from omegaconf import OmegaConf
 from torch.nn import functional as F
 from einops import rearrange, repeat
-from custom_models.cjepa_predictor import MaskedSlotPredictor
-from custom_models.dinowm_causal import CausalWM, Embedder
-from videosaur.videosaur import models
-from custom_models.custom_codes.hungarian import hungarian_matching_loss_with_proprio
-from custom_models.custom_codes.custom_dataset import PushTSlotDataset
+from model.cjepa_predictor import MaskedSlotPredictor
+from model.dinowm_causal import CausalWM, Embedder
+from third_party.videosaur.videosaur import models
+from model.custom_codes.hungarian import hungarian_matching_loss_with_proprio
+from model.custom_codes.custom_dataset import PushTSlotDataset
 
 import pickle as pkl
 import numpy as np

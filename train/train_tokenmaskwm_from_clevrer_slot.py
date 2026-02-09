@@ -16,7 +16,7 @@ from omegaconf import OmegaConf
 from torch.nn import functional as F
 from tqdm import tqdm
 import wandb
-from custom_models.tokenmask_predictor import TokenMaskedSlotPredictor
+from model.tokenmask_predictor import TokenMaskedSlotPredictor
 
 import pickle as pkl
 import numpy as np

@@ -12,9 +12,9 @@ from omegaconf import OmegaConf
 import torch
 import hydra
 from torch.utils.data import DataLoader
-from custom_models.dinowm_causal import CausalWM
-from custom_models.cjepa_predictor import MaskedSlotPredictor
-from videosaur.videosaur import  models
+from model.dinowm_causal import CausalWM
+from model.cjepa_predictor import MaskedSlotPredictor
+from third_party.videosaur.videosaur import  models
 import stable_pretraining as spt
 import stable_worldmodel as swm
 from nerv.utils import mkdir_or_exist

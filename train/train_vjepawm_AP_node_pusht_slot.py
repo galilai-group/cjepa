@@ -17,11 +17,11 @@ from einops import rearrange, repeat
 from torch.utils.data import DataLoader
 from transformers import AutoModel
 import wandb
-from custom_models.dinowm_causal_AP_node import CausalWM_AP
-from custom_models.vjepa_predictor import MaskedSlot_AP_Predictor
-from videosaur.videosaur import models
-from custom_models.custom_codes.hungarian import hungarian_matching_loss_AP, hungarian_matching_loss_with_proprio
-from custom_models.custom_codes.custom_dataset import PushTSlotDataset
+from model.dinowm_causal_AP_node import CausalWM_AP
+from model.vjepa_predictor import MaskedSlot_AP_Predictor
+from third_party.videosaur.videosaur import models
+from model.custom_codes.hungarian import hungarian_matching_loss_AP, hungarian_matching_loss_with_proprio
+from model.custom_codes.custom_dataset import PushTSlotDataset
 
 import pickle as pkl
 import numpy as np

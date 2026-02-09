@@ -16,10 +16,10 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from transformers import AutoModel
 import wandb
-from custom_models.dinowm_causal_savi import CausalWM_Savi
-from custom_models.cjepa_predictor import MaskedSlotPredictor
-from custom_models.custom_codes.custom_dataset import ClevrerVideoDataset
-from slotformer.base_slots.models import build_model
+from model.dinowm_causal_savi import CausalWM_Savi
+from model.cjepa_predictor import MaskedSlotPredictor
+from model.custom_codes.custom_dataset import ClevrerVideoDataset
+from third_party.slotformer.base_slots.models import build_model
 import sys
 import importlib
 

@@ -16,7 +16,7 @@ from omegaconf import OmegaConf
 from torch.nn import functional as F
 from tqdm import tqdm
 import wandb
-from custom_models.vjepa_predictor import MaskedSlotPredictor
+from model.vjepa_predictor import MaskedSlotPredictor
 
 import pickle as pkl
 import numpy as np

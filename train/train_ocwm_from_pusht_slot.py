@@ -14,9 +14,9 @@ from loguru import logger as logging
 from omegaconf import OmegaConf
 from torch.nn import functional as F
 from einops import rearrange, repeat
-from custom_models.cjepa_predictor import MaskedSlotPredictor
-from custom_models.dinowm_oc import OCWM
-from videosaur.videosaur import models
+from model.cjepa_predictor import MaskedSlotPredictor
+from model.dinowm_oc import OCWM
+from third_party.videosaur.videosaur import models
 
 import pickle as pkl
 import numpy as np

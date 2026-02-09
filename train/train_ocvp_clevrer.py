@@ -32,9 +32,9 @@ import pickle
 import numpy as np
 
 # Local imports
-from custom_models.ocvp_predictor import build_ocvp_predictor, OCVPWrapper
-from custom_models.custom_codes.custom_dataset import ClevrerVideoDataset
-from slotformer.base_slots.models import build_model
+from model.ocvp_predictor import build_ocvp_predictor, OCVPWrapper
+from model.custom_codes.custom_dataset import ClevrerVideoDataset
+from third_party.slotformer.base_slots.models import build_model
 
 import stable_pretraining as spt
 

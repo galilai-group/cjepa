@@ -16,14 +16,14 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from transformers import AutoModel
 import wandb
-from custom_models.dinowm_oc import OCWM
+from model.dinowm_oc import OCWM
 import os
 import gdown
-from custom_models.custom_codes.custom_dataset import ClevrerVideoDataset
+from model.custom_codes.custom_dataset import ClevrerVideoDataset
 
 
 # import sys, importlib; sys.modules["videosaur"] = importlib.import_module("videosaur.videosaur")
-from videosaur.videosaur import  models
+from third_party.videosaur.videosaur import  models
 
 DINO_PATCH_SIZE = 14  # DINO encoder uses 14x14 patches
 

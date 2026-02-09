@@ -4,7 +4,7 @@ import torch
 from train.train_causalwm_from_clevrer_slot import setup_distributed, is_main_process, setup_wandb, get_data, get_world_model, rollout_video_slots
 import hydra
 import logging
-from custom_models.cjepa_predictor import MaskedSlotPredictor
+from model.cjepa_predictor import MaskedSlotPredictor
 from aloe_scripts.visualize import build_model, build_method
 
 data_dir = "/cs/data/people/hnam16/data/clevrer_for_savi/videos/train/video_08000-09000/video_08001/mp4"
