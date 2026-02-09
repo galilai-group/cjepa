@@ -1,6 +1,0 @@
-[submodule "stable-worldmodel"]
-	path = stable-worldmodel
-	url = https://github.com/rbalestr-lab/stable-worldmodel.git
-[submodule "stable-pretraining"]
-	path = stable-pretraining
-	url = https://github.com/rbalestr-lab/stable-pretraining.git

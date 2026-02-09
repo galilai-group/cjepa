@@ -4,6 +4,9 @@ conda create -n dino310 python=3.10 -y
 conda activate dino310
 conda install anaconda::ffmpeg
 pip install seaborn webdataset swig einops uv torchcodec av
+
+stable-pretraining @ 92b5841
+stable-worldmodel @ 221ac82
 uv pip install -e ./stable-pretraining % make sure you init submodule
 uv pip install -e ./stable-worldmodel % make sure you init submodule
 uv pip install accelerate tensorboard tensorboardX hickle
@@ -211,18 +214,7 @@ sbatch script/pusht/run_causalwm_AP_node.sh
   ```
 
 
-  <!-- ## 4.2 Run ALOE w/o Predictor
-  * 4.1 should be done
-  * Before running the code, replace `nerv/nerv/utils/misc.py` with `custom_codes/misc.py`. This is because the original code is based on `pytorch-lightning==0.8.*` while we are using `pytorch-lightning==2.6.*`.
-  * You should change params manually in `sloformer/clevrer_vqa/configs/aloe_clevrer_params.py`. For example, 
-    * `gpu` (it should exactly match the number of the visible devices)
-    * `slots_root`
-    * `lr`
-
-  ```
-  sbatch scripts/run_aloe.sh
-  ``` -->
-
+ 
 
   ## 4.2 Run ALOE 
   * This step needs slots from 4.1 and CJEPA checkpoint from 3.1
