@@ -23,7 +23,7 @@ for SEED in "${SEEDS[@]}"; do
 
     HYDRA_FULL_ERROR=1 
     STABLEWM_HOME=/cs/data/people/hnam16/.stable_worldmodel/ 
-    python plan/run.py \
+    python src/plan/run.py \
         seed=${SEED} \
         policy=${EXPNUM}_epoch_20 \
         world.history_size=1 \

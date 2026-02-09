@@ -15,7 +15,7 @@ echo "Node list: $SLURM_NODELIST"
 export PYTHONPATH=$(pwd)
 
 # torchrun --nproc_per_node=2 --master-port=29501 \
-python aloe_scripts/train.py \
+python src/aloe_train.py \
   --task clevrer_vqa \
   --params slotformer/clevrer_vqa/configs/aloe_clevrer_params-rollout.py \
   --exp_name 228 \

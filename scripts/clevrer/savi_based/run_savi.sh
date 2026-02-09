@@ -17,7 +17,7 @@ export PYTHONPATH=$(pwd)
 # PRED=mlp  # 'mlp' or 'transformer'
 
 
-torchrun --nproc_per_node=3 --master-port=29502 aloe_scripts/train.py \
+torchrun --nproc_per_node=3 --master-port=29502 src/aloe_train.py \
   --task base_slots \
   --params slotformer/base_slots/configs/stosavi_clevrer_params.py \
   --exp_name clevrer_savi_reproduce \
