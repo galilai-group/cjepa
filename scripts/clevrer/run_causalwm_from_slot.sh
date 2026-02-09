@@ -1,11 +1,11 @@
 #!/bin/bash
-#SBATCH --job-name=clevrer-cjepa
+#SBATCH --job-name=219
 #SBATCH --time=5-00:00:00
 #SBATCH --partition=gpus
 #SBATCH --ntasks=1
-#SBATCH --gres=gpu:nvidia_rtx_a6000:1
+#SBATCH --gres=gpu:geforce_gtx_2080_ti:1
 #SBATCH --cpus-per-task=9
-#SBATCH --mem=50G
+#SBATCH --mem=30G
 #SBATCH --output=slurm-%j.out
 #SBATCH --error=slurm-%j.err
 
@@ -14,14 +14,14 @@ echo "Node list: $SLURM_NODELIST"
 
 export PYTHONPATH=$(pwd)
 # becareful if you have special characters in the path like '=': Need escape it with '\'
-# export SLOTPATH="/cs/data/people/hnam16/data/modified_extraction/clevrer_slots_step\=100000_weight03_lr1e-4_clevrer.pkl"
-export SLOTPATH="/cs/data/people/hnam16/data/modified_extraction/savi_slots.pkl"
+export SLOTPATH="/cs/data/people/hnam16/data/modified_extraction/clevrer_slots_step\=100000_weight03_lr1e-4_clevrer.pkl"
+# export SLOTPATH="/cs/data/people/hnam16/.stable_worldmodel/artifacts/oc-checkpoints/savi_slots.pkl"
 
 # torchrun --nproc_per_node=3 --master-port=29501 \
 
 python train/train_causalwm_from_clevrer_slot.py \
     cache_dir="/cs/data/people/hnam16/.stable_worldmodel" \
-    output_model_name="70p" \
+    output_model_name="219p" \
     dataset_name="clevrer" \
     num_workers=8 \
     batch_size=256 \

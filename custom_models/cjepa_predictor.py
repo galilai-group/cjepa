@@ -27,13 +27,20 @@ class NonCausalTransformer(nn.Module):
                 )
             ]))
 
-    def forward(self, x):
+    def forward(self, x, return_attention=False):
         # x: (B, SeqLen, D)
+        attn_weights_list = [] if return_attention else None
         for attn, ff in self.layers:
             # Self-attention with no mask (Full Attention)
-            attn_out, _ = attn(x, x, x) 
+            if return_attention:
+                attn_out, attn_weights = attn(x, x, x, need_weights=return_attention, average_attn_weights=True)
+                attn_weights_list.append(attn_weights)  # (B, SeqLen, SeqLen)
+            else:
+                attn_out, _ = attn(x, x, x)
             x = x + attn_out
             x = x + ff(x)
+        if return_attention:
+            return self.norm(x), attn_weights_list
         return self.norm(x)
 
 class MaskedSlotPredictor(nn.Module):
@@ -221,6 +228,74 @@ class MaskedSlotPredictor(nn.Module):
         out = rearrange(out_flat, 'b (t s) d -> b t s d', t=T_total, s=S)
         out = self.to_out(out)
         return out[:, T_hist:, :, :]
+    
+    @torch.no_grad()
+    def attention_probing(self, x, layer_idx=-1):
+        """
+        Forward pass with attention extraction for probing.
+        
+        Args:
+            x: (B, T_hist, S, D)
+            layer_idx: Which transformer layer's attention to return. 
+                       -1 means the last layer. Default: -1.
+        
+        Returns:
+            out: (B, T_total, S, D) - Predicted slots
+            masked_indices: Indices of masked slots
+            attention_dict: Dictionary with attention scores.
+                Keys: 
+                    - 'masked_slot_{i}_t{t}' for masked slots at history timesteps (t=1 to T_hist-1)
+                    - 'future_t{T_hist}_slot_{s}' for all slots at the first future timestep
+                Values: (B, T_total, S) normalized attention scores (what that token attends to)
+        """
+        B, T_hist, S, D = x.shape
+        T_total = self.total_frames
+        
+        # 1. Prepare Input (Mix of Real Data and Queries)
+        x_input, masked_indices = self.prepare_input(x)  # (B, T_total, S, D)
+        
+        # 2. Flatten for Transformer: (B, T*S, D)
+        x_flat = rearrange(x_input, 'b t s d -> b (t s) d')
+        
+        # 3. Non-Causal Full Attention with attention weights
+        out_flat, attn_weights_list = self.transformer(x_flat, return_attention=True)
+        
+        # Select attention from specified layer (default: last layer)
+        # attn_weights shape: (B, T*S, T*S)
+        attn_weights = attn_weights_list[layer_idx]
+        
+        # 4. Unflatten output
+        out = rearrange(out_flat, 'b (t s) d -> b t s d', t=T_total, s=S)
+        
+        # 5. Output Projection
+        out = self.to_out(out)
+        
+        # 6. Extract attention scores for specific tokens
+        # Reshape attention to (B, T_total, S, T_total, S) for easier indexing
+        # attn[b, t_q, s_q, t_k, s_k] = attention from query (t_q, s_q) to key (t_k, s_k)
+        attn_reshaped = rearrange(attn_weights, 'b (tq sq) (tk sk) -> b tq sq tk sk', 
+                                   tq=T_total, sq=S, tk=T_total, sk=S)
+        
+        attention_dict = {}
+        
+        # (A) Attention for masked slots at history timesteps (t=1 to T_hist-1)
+        # These are positions where masked slots have query tokens instead of real data
+        for slot_idx in masked_indices.tolist():
+            for t in range(1, T_hist):  # t=1 to T_hist-1
+                key = f'masked_slot_{slot_idx}_t{t}'
+                # Get attention: (B, T_total, S) - what this token attends to
+                attn_slice = attn_reshaped[:, t, slot_idx, :, :]  # (B, T_total, S)
+                attention_dict[key] = attn_slice
+        
+        # (B) Attention for all slots at the first future timestep (t=T_hist)
+        first_future_t = T_hist
+        for slot_idx in range(S):
+            key = f'future_t{first_future_t}_slot_{slot_idx}'
+            # Get attention: (B, T_total, S) - what this token attends to
+            attn_slice = attn_reshaped[:, first_future_t, slot_idx, :, :]  # (B, T_total, S)
+            attention_dict[key] = attn_slice
+        
+        return out, masked_indices, attention_dict
 
     def forward(self, x):
         """

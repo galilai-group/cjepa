@@ -5,7 +5,7 @@ import argparse
 import importlib
 import numpy as np
 from tqdm import tqdm
-
+import pickle
 import torch
 
 from nerv.utils import load_obj, dump_obj, mkdir_or_exist
@@ -88,8 +88,13 @@ def process_video(model):
 
     try:
         slots = {'train': train_slots, 'val': val_slots, 'test': test_slots}
-        mkdir_or_exist(os.path.dirname(args.save_path))
-        dump_obj(slots, args.save_path)
+        # mkdir_or_exist(os.path.dirname(args.save_path))
+        # dump_obj(slots, args.save_path)
+        os.makedirs(os.path.dirname(args.save_path), exist_ok=True)
+        name = args.weight.split('/')[-1].split('.')[0] + '_rollout_slots.pkl'
+        with open(os.path.join(args.save_path, name), 'wb') as f:
+            pickle.dump(slots, f)
+        
         print(f'Finish {params.dataset} video dataset, '
               f'train: {len(train_slots)}/{len_train}, '
               f'val: {len(val_slots)}/{len_val}, '

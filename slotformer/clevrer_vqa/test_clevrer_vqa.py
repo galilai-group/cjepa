@@ -29,11 +29,17 @@ def int2str(v):
 
 
 @torch.no_grad()
-def test(model, test_loader):
-    results = [{
-        'scene_index': i + 15000,
-        'questions': []
-    } for i in range(5000)]
+def test(model, test_loader, split='test'):
+    if split == 'test':
+        results = [{
+            'scene_index': i + 15000,
+            'questions': []
+        } for i in range(5000)]
+    elif split == 'val':
+        results = [{
+            'scene_index': i + 10000,
+            'questions': []
+        } for i in range(5000)]
     for data_dict in tqdm(test_loader):
         scene_index = data_dict['scene_index'].numpy().astype(np.int32)  # [B]
         question_id = data_dict['question_id'].numpy().astype(np.int32)  # [B]
@@ -53,9 +59,13 @@ def test(model, test_loader):
             mc_answer_logits is not None else 0
 
         # based on the fact that cls q are always before mc q in loaded data
+        if split == 'test':
+            offset = 15000
+        elif split == 'val':
+            offset = 10000
         for i in range(num_cls):
             idx = i
-            res_idx = scene_index[idx] - 15000
+            res_idx = scene_index[idx] - offset
             q_id = question_id[idx]
             ans = cls_answer[idx]
             results[res_idx]['questions'].append({
@@ -65,7 +75,7 @@ def test(model, test_loader):
 
         for i in range(num_mc):
             idx = i + num_cls
-            res_idx = scene_index[idx] - 15000
+            res_idx = scene_index[idx] - offset
             q_id = question_id[idx]
             ans = mc_answer[mc_flag == i]  # [n]
             choice_id = mc_choice_id[mc_flag == i]
@@ -87,7 +97,7 @@ def test(model, test_loader):
             else:
                 q_list[flag]['choices'] += choice_lst
     name = args.weight.split('/')[-1].split('.')[0]
-    save_path =  f'./{name}_testfile.json'
+    save_path =  f'./{name}_{split}file.json'
     dump_obj(results, save_path)
 
 
@@ -95,6 +105,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Aloe CLEVRER VQA')
     parser.add_argument('--params', type=str,  default='slotformer/clevrer_vqa/configs/aloe_clevrer_param_for_test.py')
     parser.add_argument('--weight', type=str, default='/cs/data/people/hnam16/aloe_checkpoint/aloe_clevrer_params/models/epoch/model_400_salr5e-4_w01_aloelr_1e-3.pth', help='load weight')
+    parser.add_argument('--slots_root_override', type=str, default=None, help='override slots root in params')
+    parser.add_argument('--validate', action='store_true', help='run validation instead of test')
+    parser.add_argument('--test', action='store_true', help='run test instead of validation')
     args = parser.parse_args()
 
     if args.params.endswith('.py'):
@@ -102,6 +115,15 @@ if __name__ == '__main__':
     sys.path.append(os.path.dirname(args.params))
     params = importlib.import_module(os.path.basename(args.params))
     params = params.SlotFormerParams()
+    if args.slots_root_override is not None:
+        params.slots_root = args.slots_root_override
+
+
+    model = build_model(params)
+    ckp = torch.load(args.weight, map_location='cpu')
+    model.load_state_dict(ckp['state_dict'])
+    model = model.eval().cuda()
+
 
     test_set, collate_fn = build_dataset(params, test_set=True)
     label2answer = test_set.label2answer
@@ -114,9 +136,27 @@ if __name__ == '__main__':
         pin_memory=True,
         drop_last=False,
     )
-    model = build_model(params)
-    ckp = torch.load(args.weight, map_location='cpu')
-    model.load_state_dict(ckp['state_dict'])
-    model = model.eval().cuda()
 
-    test(model, test_loader)
+    if args.test:
+        test(model, test_loader)
+
+    if args.validate:
+
+        datasets = build_dataset(params)
+        _, val_set = datasets[0], datasets[1]
+        collate_fn = datasets[2] if len(datasets) == 3 else None
+        val_loader = DataLoader(
+            val_set,
+            params.val_batch_size,
+            shuffle=False,
+            num_workers=params.num_workers,
+            collate_fn=collate_fn,
+            pin_memory=True,
+            drop_last=False,
+        )
+
+        test(model, val_loader, split='val')
+
+
+
+    

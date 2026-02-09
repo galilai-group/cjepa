@@ -1,10 +1,10 @@
 #!/bin/bash
-#SBATCH --job-name=210p
+#SBATCH --job-name=vjepa
 #SBATCH --time=5-00:00:00
 #SBATCH --partition=gpus
 #SBATCH --ntasks=1
-#SBATCH --gres=gpu:nvidia_titan_rtx:1
-#SBATCH --cpus-per-task=5
+#SBATCH --gres=gpu:nvidia_l40:1
+#SBATCH --cpus-per-task=9
 #SBATCH --mem=30G
 #SBATCH --output=slurm-%j.out
 #SBATCH --error=slurm-%j.err
@@ -26,9 +26,9 @@ export CKPT_PATH="/cs/data/people/hnam16/.stable_worldmodel/artifacts/oc-checkpo
 # Caution!! Set output_model_name properly 
 python train/train_vjepawm_AP_node_pusht_slot.py \
     cache_dir="/cs/data/people/hnam16/.stable_worldmodel" \
-    output_model_name="210p" \
+    output_model_name="252p" \
     dataset_name="pusht_expert" \
-    num_workers=4 \
+    num_workers=8 \
     batch_size=256 \
     trainer.max_epochs=30 \
     predictor_lr=5e-4 \
@@ -46,7 +46,7 @@ python train/train_vjepawm_AP_node_pusht_slot.py \
     model.load_weights=${CKPT_PATH} \
     use_hungarian_matching=false \
     mask_ratio=0.5 \
-    num_masked_blocks=2
+    num_masked_blocks=3
 
 
 

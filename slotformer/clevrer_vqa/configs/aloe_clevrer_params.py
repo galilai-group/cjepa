@@ -22,7 +22,7 @@ class SlotFormerParams(BaseParams):
     # data settings
     dataset = 'clevrer_slots'
     data_root = 'dataset/clevrer'
-    slots_root = '/cs/data/people/hnam16/data/fixed_clevrer_slots_step=100000_weight03_lr1e-4_clevrer.pkl'
+    slots_root = '/cs/data/people/hnam16/data/modified_extraction/savi_slots_key_changed.pkl'
     # put absolute path here
     cur_dir = os.path.dirname(os.path.realpath(__file__))
     vocab_file = os.path.join(cur_dir, '../datasets/cache/CLEVRER_vocab.json')
@@ -32,7 +32,7 @@ class SlotFormerParams(BaseParams):
     max_question_len = 20
     max_choice_len = 12
     shuffle_obj = False  # SAVi has temporal consistency
-    train_batch_size = 256 // gpus
+    train_batch_size = 512 // gpus
     val_batch_size = train_batch_size * 2
     num_workers = 4
 

@@ -1,0 +1,182 @@
+{
+    "uuid": "0001c8d9773d43b28a4ccc0fe488a386",
+    "language_instruction": "put the ketchup in the top drawer of the cabinet",
+    "Global": {
+        "Robots": {
+            "robots": "Panda",
+            "impedance_mode": "fixed",
+            "damping_ratio": 1.0
+        },
+        "Scene": {
+            "material": {
+                "floorplane": {
+                    "reflectance": null,
+                    "shininess": 0.0,
+                    "specular": 0.0,
+                    "texture": {
+                        "name": "texplane",
+                        "file": "assets/textures/gray_ceramic_tile.png"
+                    }
+                },
+                "table_texture": {
+                    "reflectance": null,
+                    "shininess": 0.0,
+                    "specular": 0.2,
+                    "texture": {
+                        "name": "tex-table",
+                        "file": "assets/textures/martin_novak_wood_table.png"
+                    }
+                },
+                "table_legs": {
+                    "reflectance": 0.8,
+                    "shininess": 0.8,
+                    "specular": null,
+                    "texture": {
+                        "name": "tex-table-legs",
+                        "file": "assets/textures/martin_novak_wood_table.png"
+                    }
+                },
+                "walls_mat": {
+                    "reflectance": null,
+                    "shininess": 0.3,
+                    "specular": 0.8,
+                    "texture": {
+                        "name": "tex-wall",
+                        "file": "assets/textures/yellow_linen_wall_texture.png"
+                    }
+                },
+                "table_mat": {
+                    "reflectance": null,
+                    "shininess": null,
+                    "specular": null,
+                    "texture": {
+                        "name": "textable",
+                        "rgb1": null,
+                        "rgb2": [
+                            0.8,
+                            0.8,
+                            0.8
+                        ],
+                        "width": 512,
+                        "height": 3072
+                    }
+                }
+            },
+            "light": {
+                "light0": {
+                    "diffuse": [
+                        0.8,
+                        0.8,
+                        0.8
+                    ],
+                    "specular": [
+                        0.8,
+                        0.8,
+                        0.8
+                    ],
+                    "dir": [
+                        0.0,
+                        0.0,
+                        -1.0
+                    ],
+                    "directional": true,
+                    "pos": [
+                        -1.75,
+                        0.0,
+                        1.6
+                    ],
+                    "castshadow": false
+                },
+                "light1": {
+                    "diffuse": [
+                        0.8,
+                        0.8,
+                        0.8
+                    ],
+                    "specular": null,
+                    "dir": [
+                        0.0,
+                        -0.14834,
+                        -0.988936
+                    ],
+                    "directional": null,
+                    "pos": [
+                        1.0,
+                        1.0,
+                        4.0
+                    ],
+                    "castshadow": false
+                },
+                "light2": {
+                    "diffuse": [
+                        0.8,
+                        0.8,
+                        0.8
+                    ],
+                    "specular": null,
+                    "dir": [
+                        0.0,
+                        -0.14834,
+                        -0.988936
+                    ],
+                    "directional": null,
+                    "pos": [
+                        -3.0,
+                        -3.0,
+                        4.0
+                    ],
+                    "castshadow": false
+                }
+            }
+        },
+        "Object": [
+            {
+                "instance_name": "akita_black_bowl_1",
+                "path": "assets/stable_scanned_objects/akita_black_bowl"
+            },
+            {
+                "instance_name": "ketchup_1",
+                "path": "assets/stable_hope_objects/ketchup"
+            },
+            {
+                "instance_name": "plate_1",
+                "path": "assets/stable_scanned_objects/plate"
+            }
+        ]
+    },
+    "Dynamic": [
+        {
+            "joint_pos": "0001c8d9773d43b28a4ccc0fe488a386.npz"
+        },
+        {
+            "joint_vel": "0001c8d9773d43b28a4ccc0fe488a386.npz"
+        },
+        {
+            "eef_pos": "0001c8d9773d43b28a4ccc0fe488a386.npz"
+        },
+        {
+            "eef_quat": "0001c8d9773d43b28a4ccc0fe488a386.npz"
+        },
+        {
+            "gripper_qpos": "0001c8d9773d43b28a4ccc0fe488a386.npz"
+        },
+        {
+            "gripper_qvel": "0001c8d9773d43b28a4ccc0fe488a386.npz"
+        },
+        {
+            "pos_objects": "0001c8d9773d43b28a4ccc0fe488a386.npz"
+        },
+        {
+            "rot_objects": "0001c8d9773d43b28a4ccc0fe488a386.npz"
+        }
+    ],
+    "Other": {
+        "Camera View": [
+            "agentview",
+            "robot0_eye_in_hand",
+            "sideview",
+            "frontview",
+            "birdview"
+        ]
+    }
+}

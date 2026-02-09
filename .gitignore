@@ -8,6 +8,7 @@ temp/*
 outputs/*
 testfiles/*
 savi_visualize/*
+**valfile.json
 
 # logs / vscode
 **.out

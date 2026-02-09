@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=hold_ghost_gpu
 #SBATCH --partition=gpus              # 네 클러스터 파티션 이름
-#SBATCH --gres=gpu:nvidia_rtx_a6000:1                  # 유령 GPU를 잡기 위한 핵심
+#SBATCH --gres=gpu:geforce_gtx_2080_ti:1                  # 유령 GPU를 잡기 위한 핵심
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=1G
 #SBATCH --time=7-00:00:00             

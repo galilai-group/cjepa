@@ -31,7 +31,7 @@ from einops import rearrange, repeat
 from custom_models.cjepa_predictor import MaskedSlotPredictor
 from custom_models.dinowm_causal import CausalWM, Embedder
 from videosaur.videosaur import models
-from custom_models.custom_codes.hungarian import hungarian_matching_loss, hungarian_matching_loss_with_proprio
+from custom_models.custom_codes.hungarian import hungarian_matching_loss_with_proprio
 from custom_models.custom_codes.custom_dataset import PushTSlotDataset
 
 import pickle as pkl

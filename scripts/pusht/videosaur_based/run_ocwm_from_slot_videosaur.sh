@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=cjepa
+#SBATCH --job-name=ocwm
 #SBATCH --time=5-00:00:00
 #SBATCH --partition=gpus
 #SBATCH --ntasks=1
@@ -14,11 +14,11 @@ echo "Node list: $SLURM_NODELIST"
 
 export PYTHONPATH=$(pwd)
 # becareful if you have special characters in the path like '=': Need escape it with '\'
-export SLOTPATH="/cs/data/people/hnam16/data/modified_extraction/pusht_expert_slots_pushtnoise_videosaur_lr1e-4_w03_step\=100000.pkl"
+export SLOTPATH="/cs/data/people/hnam16/data/modified_extraction/pusht_expert_slots_videosaur_171.pkl"
 # export SLOTPATH="/cs/data/people/hnam16/data/modified_extraction/pusht_savi_101.pkl"
 
 # this is for saving swm ckpt for smooth planning.. this should be matched with the pusht ckpt used for slot extraction
-export CKPT_PATH="/cs/data/people/hnam16/.stable_worldmodel/artifacts/oc-checkpoints/pushtnoise_videosaur_lr1e-4_w03_step\=100000.ckpt"
+export CKPT_PATH="/cs/data/people/hnam16/.stable_worldmodel/artifacts/oc-checkpoints/videosaur_171.ckpt"
 
 # torchrun --nproc_per_node=3 --master-port=29501 \
 
@@ -26,7 +26,7 @@ export CKPT_PATH="/cs/data/people/hnam16/.stable_worldmodel/artifacts/oc-checkpo
 
 python train/train_ocwm_from_pusht_slot.py \
     cache_dir="/cs/data/people/hnam16/.stable_worldmodel" \
-    output_model_name="149p" \
+    output_model_name="198p" \
     dataset_name="pusht_expert" \
     num_workers=8 \
     batch_size=256 \

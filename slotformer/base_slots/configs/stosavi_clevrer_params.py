@@ -5,8 +5,8 @@ class SlotFormerParams(BaseParams):
     project = 'SlotFormer'
 
     # training settings
-    gpus = 4  # 2 GPUs should also be good
-    max_epochs = 12  # 230k steps
+    gpus = 1  # 2 GPUs should also be good
+    max_epochs = 8  # 230k steps
     save_interval = 0.2  # save every 0.2 epoch
     save_epoch_end = True  # save ckp at the end of every epoch
     n_samples = 5  # visualization after each epoch
@@ -20,11 +20,11 @@ class SlotFormerParams(BaseParams):
 
     # data settings
     dataset = 'clevrer'
-    data_root = './data/CLEVRER'
+    data_root = '/cs/data/people/hnam16/data/clevrer_for_savi'
     n_sample_frames = 6  # train on video clips of 6 frames
     frame_offset = 1  # no offset
     filter_enter = False  # no need to filter videos when training SAVi
-    train_batch_size = 64 // gpus
+    train_batch_size = 32
     val_batch_size = train_batch_size * 2
     num_workers = 8
 

@@ -13,8 +13,8 @@ echo "SLURM job started on: $(date)"
 echo "Node list: $SLURM_NODELIST"
 
 export PYTHONPATH=$(pwd)
-export CKPTPATH='/cs/data/people/hnam16/.stable_worldmodel/21p_final_predictor.ckpt'
-export SLOTPATH="/cs/data/people/hnam16/data/modified_extraction/clevrer_slots_step\=100000_weight03_lr1e-4_clevrer.pkl"
+export CKPTPATH='/cs/data/people/hnam16/.stable_worldmodel/119p_final_predictor.ckpt'
+export SLOTPATH="/cs/data/people/hnam16/data/modified_extraction/clevrer_savi_reproduced.pkl"
 
 
 python train/train_causalwm_from_clevrer_slot.py \
@@ -32,7 +32,7 @@ python train/train_causalwm_from_clevrer_slot.py \
     predictor.heads=16 \
     embedding_dir=$SLOTPATH \
     predictor_lr=5e-4 \
-    num_masked_slots=4
+    num_masked_slots=0
 
 
 

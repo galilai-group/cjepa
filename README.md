@@ -6,7 +6,7 @@ conda install anaconda::ffmpeg
 pip install seaborn webdataset swig einops uv torchcodec av
 uv pip install -e ./stable-pretraining % make sure you init submodule
 uv pip install -e ./stable-worldmodel % make sure you init submodule
-uv pip install accelerate tensorboard tensorboardX  
+uv pip install accelerate tensorboard tensorboardX hickle
 ```
 to run ALOE for clevrer VQA, install `nerv` and s`pycocotools` as well.
 ```

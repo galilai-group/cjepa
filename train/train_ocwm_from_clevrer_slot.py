@@ -251,9 +251,14 @@ def validate(predictor, val_loader, cfg, device, world_size):
 def rollout_video_slots(predictor, pre_slots, cfg, device, batch_size=None):
     """
     Rollout slots from OBS_FRAMES (128) to TARGET_LEN (160) using autoregressive prediction.
+    
+    Model behavior:
+    - Input: 6 frames (history_size)
+    - Output: 6 frames (predicting frames at input_idx + num_preds)
+    - Example: input [0,1,2,3,4,5] → output [10,11,12,13,14,15]
 
     Args:
-        predictor: MaskedSlotPredictor model
+        predictor: CausalPredictor model
         pre_slots: Dict of {video_key: slots} where slots is [128, num_slots, slot_dim]
         cfg: Config with history_size, num_preds, frameskip
         device: torch device
@@ -263,9 +268,9 @@ def rollout_video_slots(predictor, pre_slots, cfg, device, batch_size=None):
         Dict of {video_key: extended_slots} where extended_slots is [160, num_slots, slot_dim]
     """
     predictor.eval()
-    history_len = cfg.dinowm.history_size
-    pred_len = cfg.dinowm.num_preds
-    frameskip = cfg.frameskip
+    history_len = cfg.dinowm.history_size  # 6
+    num_preds = cfg.dinowm.num_preds       # 10
+    frameskip = cfg.frameskip              # 2
 
     # Default batch size: number of available GPUs
     if batch_size is None:
@@ -296,55 +301,62 @@ def rollout_video_slots(predictor, pre_slots, cfg, device, batch_size=None):
         extended_slots = torch.zeros(current_bs, TARGET_LEN, num_slots, slot_dim, device=device)
         extended_slots[:, :OBS_FRAMES, :, :] = batch_slots
 
-        # For models trained with frameskip, we need to handle multiple offset sequences
         frames_to_predict = TARGET_LEN - OBS_FRAMES  # 32 frames to predict
 
         # For each offset in [0, frameskip), we predict a sequence
-        all_pred_slots = []
-
         for off_idx in range(frameskip):
-            # Start position for history (subsampled)
-            start = OBS_FRAMES - pred_len * frameskip + off_idx
-
-            # Extract history with frameskip: [B, history_len, N, C]
-            history_indices = list(range(start, OBS_FRAMES, frameskip))[:history_len]
-            history = extended_slots[:, history_indices, :, :]  # [B, history_len, N, C]
-
-            # Calculate how many autoregressive steps needed
-            num_pred_frames_needed = (frames_to_predict + frameskip - 1) // frameskip
-
-            pred_frames_list = []
-            current_history = history
-
-            while len(pred_frames_list) < num_pred_frames_needed:
-                # Predict next pred_len frames: [B, pred_len, N, C]
-                # pred = predictor(current_history)
-                T = current_history.shape[1]
-                current_history = rearrange(current_history, "b t p d -> b (t p) d")
-                preds = predictor(current_history)
-                pred = rearrange(preds, "b (t p) d -> b t p d", t=T)
-                pred_frames_list.append(pred)
-
-                # Update history: shift by pred_len and append predictions
-                if current_history.shape[1] > pred_len:
-                    current_history = torch.cat([
-                        current_history[:, pred_len:, :, :],
-                        pred
-                    ], dim=1)
-                else:
-                    current_history = pred[:, -history_len:, :, :]
-
-            # Concatenate all predictions for this offset: [B, >=num_pred_frames_needed, N, C]
-            all_preds_for_offset = torch.cat(pred_frames_list, dim=1)
-            all_pred_slots.append(all_preds_for_offset[:, :num_pred_frames_needed, :, :])
-
-        # Interleave predictions from different offsets
-        # Frame OBS_FRAMES + i should come from offset (i % frameskip), at position (i // frameskip)
-        for i in range(frames_to_predict):
-            offset = i % frameskip
-            pos = i // frameskip
-            if pos < all_pred_slots[offset].shape[1]:
-                extended_slots[:, OBS_FRAMES + i, :, :] = all_pred_slots[offset][:, pos, :, :]
+            # Subsampled frame indices for this offset
+            # offset=0: frames [0, 2, 4, ..., 126, 128, 130, ..., 158]
+            # offset=1: frames [1, 3, 5, ..., 127, 129, 131, ..., 159]
+            
+            # Number of subsampled frames in observation
+            obs_subsampled = (OBS_FRAMES - off_idx + frameskip - 1) // frameskip  # 64 for offset=0
+            
+            # Number of subsampled frames to predict
+            pred_subsampled = (frames_to_predict + frameskip - 1) // frameskip  # 16
+            
+            # Starting input position (subsampled index)
+            # To predict subsampled index 64 (=128 for offset 0), 
+            # we need input starting at 64 - num_preds = 54
+            first_pred_subsampled = obs_subsampled  # 64
+            
+            # Autoregressive prediction loop
+            predicted_count = 0
+            while predicted_count < pred_subsampled:
+                # Calculate which subsampled frame we're predicting
+                current_pred_start = first_pred_subsampled + predicted_count
+                
+                # Input indices (subsampled): need 6 frames ending at (current_pred_start - num_preds + history_len - 1)
+                input_start_subsampled = current_pred_start - num_preds
+                input_end_subsampled = input_start_subsampled + history_len
+                
+                # Convert subsampled indices to actual frame indices
+                input_frames = []
+                for i in range(input_start_subsampled, input_end_subsampled):
+                    actual_frame = i * frameskip + off_idx
+                    input_frames.append(actual_frame)
+                
+                # Gather input from extended_slots (includes previous predictions)
+                input_slots = torch.stack([extended_slots[:, f, :, :] for f in input_frames], dim=1)
+                # input_slots: [B, 6, N, C]
+                
+                # Forward through predictor
+                T = input_slots.shape[1]
+                input_flat = rearrange(input_slots, "b t p d -> b (t p) d")
+                pred_flat = predictor(input_flat)
+                pred_slots = rearrange(pred_flat, "b (t p) d -> b t p d", t=T)
+                # pred_slots: [B, 6, N, C] = predictions for [current_pred_start : current_pred_start + 6]
+                
+                # Store predictions
+                for j in range(history_len):
+                    pred_subsampled_idx = current_pred_start + j
+                    actual_pred_frame = pred_subsampled_idx * frameskip + off_idx
+                    
+                    if actual_pred_frame < TARGET_LEN and actual_pred_frame >= OBS_FRAMES:
+                        extended_slots[:, actual_pred_frame, :, :] = pred_slots[:, j, :, :]
+                
+                # Move forward by history_len predictions
+                predicted_count += history_len
 
         # Store results for each video in batch
         for batch_idx, fn in enumerate(batch_fns):
@@ -431,7 +443,7 @@ def run(cfg):
 
         # Save rollout data
         embedding_path = Path(cfg.embedding_dir)
-        rollout_filename = f"rollout_{str(embedding_path.name)[:-4]}_lr{cfg.predictor_lr}_mask{cfg.num_masked_blocks}_ratio{cfg.mask_ratio}.pkl"
+        rollout_filename = f"rollout_{str(embedding_path.name)[:-4]}_lr{cfg.predictor_lr}_exp{cfg.output_model_name}.pkl"
         rollout_path = embedding_path.parent / rollout_filename
 
         with open(rollout_path, "wb") as f:

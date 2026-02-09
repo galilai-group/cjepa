@@ -112,3 +112,14 @@ resume_from: ""
 
 # Save checkpoint every N epochs
 save_every_n_epochs: 5
+
+# ============================================================================
+# Rollout Configuration
+# ============================================================================
+rollout:
+  rollout_only: false  # Set to true for rollout-only mode
+  checkpoint: ""       # Path to OCVP checkpoint for rollout
+  slots_path: ""       # Path to pre-extracted slots (pickle file)
+  save_path: ""        # Directory to save rollout results
+  
+rollout_batch_size: 8  # Batch size for rollout

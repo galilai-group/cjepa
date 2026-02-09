@@ -35,8 +35,4 @@ python train/train_tokenmaskwm_from_clevrer_slot.py \
     predictor.heads=16 \
     embedding_dir=$SLOTPATH \
     mask_ratio=0.56
-    # load_checkpoint=true \
-    # ckpt_path="/cs/data/people/hnam16/.stable_worldmodel/205p_epoch_10_predictor.ckpt"
-
-
 

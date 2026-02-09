@@ -25,6 +25,7 @@ DATASET_TYPES = {
     "movi": "video",
     "clevrer": "video",
     "pusht": "video",
+    "phyre" : "video",
     "dummy": "video",
     "dummyimage": "image",
 }
@@ -130,7 +131,7 @@ def build(config):
             transforms["segmentations"] = segmentation_transformation
 
     # just copy from movi for now
-    elif dataset == "clevrer" or dataset == "pusht":
+    elif dataset == "clevrer" or dataset == "pusht" or dataset=="phyre":
         if "target_size" in config:
             target_size = _to_2tuple(config.target_size)
             transforms[f"target_{transform_type}"] = tvt.Compose(
@@ -142,6 +143,7 @@ def build(config):
             )
         if split == "val" and segmentation_transformation is not None:
             transforms["segmentations"] = segmentation_transformation
+
     elif dataset == "davis":
         if "target_size" in config:
             raise NotImplementedError("Separate targets not implemented for transform `davis`")

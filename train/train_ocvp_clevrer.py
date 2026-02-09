@@ -28,6 +28,8 @@ from omegaconf import OmegaConf, DictConfig
 from loguru import logger as logging
 from tqdm import tqdm
 import wandb
+import pickle
+import numpy as np
 
 # Local imports
 from custom_models.ocvp_predictor import build_ocvp_predictor, OCVPWrapper
@@ -364,6 +366,168 @@ def validate(
     return avg_losses
 
 
+# ============================================================================
+# Rollout Functions
+# ============================================================================
+OBS_FRAMES = 128
+TARGET_LEN = 160
+
+
+@torch.no_grad()
+def rollout_video_slots(
+    predictor: OCVPWrapper,
+    savi: nn.Module,
+    pre_slots: dict,
+    cfg: DictConfig,
+    device: torch.device,
+) -> dict:
+    """
+    Rollout slots from OBS_FRAMES (128) to TARGET_LEN (160) using OCVP predictor.
+    
+    Args:
+        predictor: OCVP predictor model
+        savi: SAVi model (unused, for compatibility)
+        pre_slots: Dict of {video_key: slots} where slots is [128, num_slots, slot_dim]
+        cfg: Config
+        device: torch device
+    
+    Returns:
+        Dict of {video_key: extended_slots} where extended_slots is [160, num_slots, slot_dim]
+    """
+    predictor.eval()
+    torch.cuda.empty_cache()
+    
+    bs = cfg.get("rollout_batch_size", max(1, torch.cuda.device_count()))
+    history_len = cfg.num_context
+    frame_offset = cfg.frameskip
+    
+    all_fn = list(pre_slots.keys())
+    all_slots = {}
+    
+    for start_idx in tqdm(range(0, len(all_fn), bs), desc="Rolling out slots"):
+        end_idx = min(start_idx + bs, len(all_fn))
+        slots = [pre_slots[fn] for fn in all_fn[start_idx:end_idx]]  # list of [128, N, C]
+        
+        # to [B, 128, N, C]
+        ori_slots = torch.from_numpy(np.stack(slots, axis=0))
+        
+        # pad to target len (160)
+        pad_slots = torch.zeros(
+            (ori_slots.shape[0], TARGET_LEN - OBS_FRAMES, ori_slots.shape[2], ori_slots.shape[3])
+        ).type_as(ori_slots)
+        ori_slots = torch.cat((ori_slots, pad_slots), dim=1)
+        ori_slots = ori_slots.float().to(device)
+        obs_slots = ori_slots[:, :OBS_FRAMES]  # [B, 128, N, C]
+        
+        # For models trained with frame offset, if offset is 2
+        # we rollout [0, 2, 4, ...], [1, 3, 5, ...]
+        # and then concat them to [0, 1, 2, 3, 4, 5, ...]
+        all_pred_slots = []
+        
+        for off_idx in range(frame_offset):
+            start = OBS_FRAMES - history_len * frame_offset + off_idx
+            in_slots = ori_slots[:, start::frame_offset]  # [B, history_len + pred_len, N, C]
+            
+            # Predict future slots autoregressively
+            rollout_len = in_slots.shape[1] - history_len
+            pred_slots_list = []
+            current_slots = in_slots[:, :history_len]  # [B, history_len, N, C]
+            
+            for t in range(rollout_len):
+                # Use predictor wrapper's forward (autoregressive single step)
+                # We need to get just the last prediction
+                pred = predictor.predictor(current_slots)[:, -1:]  # [B, 1, N, C]
+                pred_slots_list.append(pred)
+                
+                # Update buffer
+                current_slots = torch.cat([current_slots, pred], dim=1)
+                if current_slots.shape[1] > predictor.input_buffer_size:
+                    current_slots = current_slots[:, -predictor.input_buffer_size:]
+            
+            pred_slots = torch.cat(pred_slots_list, dim=1)  # [B, rollout_len, N, C]
+            all_pred_slots.append(pred_slots)
+        
+        # Interleave predictions from different offsets
+        pred_slots = torch.stack([
+            all_pred_slots[i % frame_offset][:, i // frame_offset]
+            for i in range(TARGET_LEN - OBS_FRAMES)
+        ], dim=1)  # [B, 32, N, C]
+        
+        slots_out = torch.cat([obs_slots, pred_slots], dim=1)  # [B, 160, N, C]
+        assert slots_out.shape[1] == TARGET_LEN
+        
+        for i, fn in enumerate(all_fn[start_idx:end_idx]):
+            all_slots[fn] = slots_out[i].cpu().numpy()
+        
+        torch.cuda.empty_cache()
+    
+    return all_slots
+
+
+def run_rollout(cfg: DictConfig):
+    """Run rollout only mode."""
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    logging.info("=" * 60)
+    logging.info("OCVP Rollout for CLEVRER")
+    logging.info("=" * 60)
+    
+    # Load pre-extracted slots
+    slots_path = cfg.rollout.slots_path
+    logging.info(f"Loading slots from {slots_path}")
+    with open(slots_path, 'rb') as f:
+        all_slots = pickle.load(f)
+    
+    # Build OCVP predictor
+    predictor = build_ocvp_model(cfg).to(device)
+    
+    # Load checkpoint
+    checkpoint_path = cfg.rollout.checkpoint
+    logging.info(f"Loading checkpoint from {checkpoint_path}")
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+    
+    # Handle different checkpoint formats
+    if "predictor_state_dict" in checkpoint:
+        predictor.load_state_dict(checkpoint["predictor_state_dict"])
+    elif "state_dict" in checkpoint:
+        predictor.load_state_dict(checkpoint["state_dict"])
+    else:
+        predictor.load_state_dict(checkpoint)
+    
+    predictor = torch.nn.DataParallel(predictor).eval()
+    
+    # Get the actual predictor (unwrap DataParallel)
+    predictor_unwrapped = predictor.module if hasattr(predictor, 'module') else predictor
+    
+    # Process each split
+    rollout_data = {}
+    for split in ['train', 'val', 'test']:
+        if split not in all_slots:
+            logging.warning(f"Split '{split}' not found in data, skipping...")
+            continue
+        
+        logging.info(f"Processing {split} split ({len(all_slots[split])} videos)...")
+        rollout_data[split] = rollout_video_slots(
+            predictor_unwrapped, None, all_slots[split], cfg, device
+        )
+        logging.info(f"Finished {split}: {len(rollout_data[split])} videos")
+    
+    # Save rollout data
+    save_dir = Path(cfg.rollout.save_path)
+    save_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate filename: rollout_{original_name}_ocvp.pkl
+    original_name = Path(slots_path).stem
+    save_filename = f"rollout_{original_name}_ocvp.pkl"
+    save_path = save_dir / save_filename
+    
+    with open(save_path, 'wb') as f:
+        pickle.dump(rollout_data, f)
+    
+    logging.info(f"Saved rollout slots to {save_path}")
+    logging.info("Rollout complete!")
+
+
 def save_checkpoint(
     predictor: nn.Module,
     optimizer: torch.optim.Optimizer,
@@ -436,6 +600,11 @@ def load_checkpoint(
 @hydra.main(version_base=None, config_path="../configs", config_name="config_train_ocvp")
 def run(cfg: DictConfig):
     """Main training function."""
+    
+    # Check if rollout mode
+    if cfg.get("rollout", {}).get("rollout_only", False):
+        run_rollout(cfg)
+        return
     
     # Setup distributed training
     is_ddp, rank, world_size, local_rank = setup_distributed()

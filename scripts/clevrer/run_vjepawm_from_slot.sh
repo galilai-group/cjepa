@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=vjepa
+#SBATCH --job-name=126
 #SBATCH --time=5-00:00:00
 #SBATCH --partition=gpus
 #SBATCH --ntasks=1
@@ -21,7 +21,7 @@ export SLOTPATH="/cs/data/people/hnam16/data/modified_extraction/clevrer_slots_s
 
 python train/train_vjepawm_from_clevrer_slot.py \
     cache_dir="/cs/data/people/hnam16/.stable_worldmodel" \
-    output_model_name="95p" \
+    output_model_name="127p" \
     dataset_name="clevrer" \
     num_workers=8 \
     batch_size=256 \
@@ -34,8 +34,8 @@ python train/train_vjepawm_from_clevrer_slot.py \
     videosaur.SLOT_DIM=128 \
     predictor.heads=16 \
     embedding_dir=$SLOTPATH \
-    num_masked_blocks=2 \
-    mask_ratio=0.75
+    num_masked_blocks=4 \
+    mask_ratio=0.56
 
 
 

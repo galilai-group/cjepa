@@ -11,8 +11,8 @@ globals:
   BATCH_SIZE_PER_GPU: 64
   TOTAL_BATCH_SIZE: "${mul: ${.NUM_GPUS}, ${.BATCH_SIZE_PER_GPU}}"
   BASE_LR: 0.0001
-  SIM_WEIGHT: 0.1
-  SIM_TEMP: 0.05
+  SIM_WEIGHT: 0.25
+  SIM_TEMP: 0.25
 
 wandb:
   enable: true

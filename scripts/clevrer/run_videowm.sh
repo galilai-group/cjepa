@@ -3,8 +3,8 @@
 #SBATCH --time=5-00:00:00
 #SBATCH --partition=gpus
 #SBATCH --ntasks=4
-#SBATCH --gres=gpu:nvidia_rtx_a6000:4
-#SBATCH --cpus-per-task=9
+#SBATCH --gres=gpu:nvidia_titan_rtx:4
+#SBATCH --cpus-per-task=4
 #SBATCH --mem=200G
 #SBATCH --output=slurm-%j.out
 #SBATCH --error=slurm-%j.err
@@ -19,7 +19,7 @@ torchrun --nproc_per_node=4 --master-port=29503 \
     cache_dir="/users/hnam16/scratch/.stable_worldmodel" \
     output_model_name="clevrer_world_model" \
     dataset_name="clevrer" \
-    num_workers=8 \
+    num_workers=4 \
     batch_size=64 \
     trainer.max_epochs=30 \
     predictor_lr=5e-4 \

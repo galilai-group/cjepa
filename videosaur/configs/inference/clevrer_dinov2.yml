@@ -1,4 +1,4 @@
-checkpoint: /cs/data/people/hnam16/.stable_worldmodel/artifacts/oc-checkpoints/step=100000_weight01_lr1e-4_clevrer.ckpt
+checkpoint: logs/videosaur_pusht/2026-01-16-16-53-02_pusht_dinov2/checkpoints/step=49000.ckpt
 model_config: videosaur/configs/videosaur/clevrer_dinov2_hf.yml
 n_slots: 7
 input:
@@ -8,4 +8,4 @@ input:
     dataset_type: video
     input_size: 196
 output:
-  save_path: result_video/video_10000_masks_hf_1e-4_01.mp4
+  save_path: result_video/pls_video_12000.mp4

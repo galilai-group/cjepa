@@ -5,8 +5,8 @@ class SlotFormerParams(BaseParams):
     project = 'savi'
 
     # training settings
-    gpus = 4  # 2 GPUs should also be good
-    max_epochs = 8  # clevrer ~20k steps with 10k video, this has 18K videos
+    gpus = 3  # 2 GPUs should also be good
+    max_epochs = 30  # clevrer ~20k steps with 10k video, this has 18K videos
     save_interval = 0.2  # save every 0.2 epoch
     eval_interval = 2  # evaluate every 2 epochs
     save_epoch_end = True  # save ckp at the end of every epoch
@@ -21,7 +21,7 @@ class SlotFormerParams(BaseParams):
 
     # data settings
     dataset = 'pusht' # just use obj3d for pusht too
-    data_root = '/cs/data/people/hnam16/data/pusht_independent_videos'
+    data_root = '/cs/data/people/hnam16/data/pusht_for_savi'
     n_sample_frames = 6  # train on video clips of 6 frames
     frame_offset = 1  # no offset
     # video_len = 50  # take the first 50 frames of each video

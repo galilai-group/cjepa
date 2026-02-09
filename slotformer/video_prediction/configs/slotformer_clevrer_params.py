@@ -70,8 +70,8 @@ class SlotFormerParams(BaseParams):
     # loss configs
     loss_dict = dict(
         rollout_len=n_sample_frames - rollout_dict['history_len'],
-        use_img_recon_loss=False,  # important for predicted image quality
+        use_img_recon_loss=True,  # important for predicted image quality
     )
 
     slot_recon_loss_w = 1.
-    img_recon_loss_w = 0.
+    img_recon_loss_w = 1.

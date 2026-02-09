@@ -1,14 +1,16 @@
 # checkpoint: /cs/data/people/hnam16/.stable_worldmodel/artifacts/oc-checkpoints/step=100000_weight01_lr1e-4_pusht.ckpt
 
-checkpoint: /cs/data/people/hnam16/.stable_worldmodel/artifacts/oc-checkpoints/pushtnoise_videosaur_lr1e-4_w01_step100000.ckpt
+# checkpoint: /cs/data/people/hnam16/.stable_worldmodel/artifacts/oc-checkpoints/videosaur_153.ckpt
+checkpoint: logs/videosaur_pusht/2026-01-18-17-23-31_pusht_dinov2/checkpoints/step=52000.ckpt
 model_config: videosaur/configs/videosaur/pusht_dinov2_hf.yml
 n_slots: 4
 input:
   path: /cs/data/people/hnam16/.stable_worldmodel/pusht_expert_val/videos/0_pixels.mp4
+  # path: /cs/data/people/hnam16/.stable_worldmodel/pusht_single_var_weak_100/agent/shape/shard_0/videos/10_pixels.mp4
   type: video
   transforms:
     dataset_type: video
     input_size: 196
 output:
-  save_path: result_video/noisypusht_0_pixels_w01.mp4 
+  save_path: result_video/172.mp4
 

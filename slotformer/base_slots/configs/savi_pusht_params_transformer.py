@@ -5,7 +5,7 @@ class SlotFormerParams(BaseParams):
     project = 'savi'
 
     # training settings
-    gpus = 2  # 2 GPUs should also be good
+    gpus = 3  # 2 GPUs should also be good
     max_epochs = 8  # clevrer ~20k steps with 10k video, this has 18K videos
     save_interval = 0.2  # save every 0.2 epoch
     eval_interval = 2  # evaluate every 2 epochs
@@ -15,7 +15,7 @@ class SlotFormerParams(BaseParams):
     # optimizer settings
     # Adam optimizer, Cosine decay with Warmup
     optimizer = 'Adam'
-    lr = 1e-4  # a small learning rate is very important for SAVi training
+    lr = 5e-4  # a small learning rate is very important for SAVi training
     clip_grad = 0.05  # following the paper
     warmup_steps_pct = 0.025  # warmup in the first 2.5% of total steps
 

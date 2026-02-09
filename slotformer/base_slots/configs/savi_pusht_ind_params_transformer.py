@@ -20,7 +20,7 @@ class SlotFormerParams(BaseParams):
     warmup_steps_pct = 0.025  # warmup in the first 2.5% of total steps
 
     # data settings
-    dataset = 'pusht' # just use obj3d for pusht too
+    dataset = 'pusht_syn' # just use obj3d for pusht too
     data_root = '/cs/data/people/hnam16/data/pusht_independent_videos'
     n_sample_frames = 6  # train on video clips of 6 frames
     frame_offset = 1  # no offset

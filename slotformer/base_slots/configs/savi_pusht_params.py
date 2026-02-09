@@ -15,7 +15,7 @@ class SlotFormerParams(BaseParams):
     # optimizer settings
     # Adam optimizer, Cosine decay with Warmup
     optimizer = 'Adam'
-    lr = 1e-4  # a small learning rate is very important for SAVi training
+    lr = 5e-4  # a small learning rate is very important for SAVi training
     clip_grad = 0.05  # following the paper
     warmup_steps_pct = 0.025  # warmup in the first 2.5% of total steps
 
