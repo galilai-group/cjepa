@@ -1,222 +1,119 @@
-# 1. Environment Setup
-```
-conda create -n dino310 python=3.10 -y
-conda activate dino310
-conda install anaconda::ffmpeg
-pip install seaborn webdataset swig einops uv torchcodec av
+# C-JEPA
+## Causal-JEPA: Learning World Models through Object-Level Latent Interventions
+by [Heejeong Nam](https://hazel-heejeong-nam.github.io/), [Quentin Le Lidec\*](https://quentinll.github.io/),[Lucas Maes\*](https://lucasmaes.bearblog.dev/), [Yann LeCun](http://yann.lecun.com/), [Randall Balestriero](https://randallbalestriero.github.io/).
 
-stable-pretraining @ 92b5841
-stable-worldmodel @ 221ac82
-uv pip install -e ./stable-pretraining % make sure you init submodule
-uv pip install -e ./stable-worldmodel % make sure you init submodule
-uv pip install accelerate tensorboard tensorboardX hickle
-```
-to run ALOE for clevrer VQA, install `nerv` and s`pycocotools` as well.
-```
-cd thrid_party
-git clone https://github.com/Wuziyi616/nerv.git
-cd nerv
-git checkout v0.1.0  # tested with v0.1.0 release
-uv pip install -e .
-pip install pycocotools
-```
+* Paper: [soon](soon)
 
-# 2. Dataset
-## 2.1 Download clevrer (~24G total)
-```sh
-#!/usr/bin/env bash
+![architecture](static/architecture.png)
 
-ROOT_DIR="/users/hnam16/scratch/clevrer_video"
-
-mkdir -p \
-  ${ROOT_DIR}/train \
-  ${ROOT_DIR}/val \
-  ${ROOT_DIR}/test
-
-echo "Downloading CLEVRER videos..."
-
-wget -nc -P ${ROOT_DIR}/train \
-  http://data.csail.mit.edu/clevrer/videos/train/video_train.zip
-
-wget -nc -P ${ROOT_DIR}/val \
-  http://data.csail.mit.edu/clevrer/videos/validation/video_validation.zip
-
-wget -nc -P ${ROOT_DIR}/test \
-  http://data.csail.mit.edu/clevrer/videos/test/video_test.zip
-
-echo "Unzipping..."
-unzip -q ${ROOT_DIR}/train/video_train.zip -d ${ROOT_DIR}/train
-unzip -q ${ROOT_DIR}/val/video_validation.zip -d ${ROOT_DIR}/val
-unzip -q ${ROOT_DIR}/test/video_test.zip -d ${ROOT_DIR}/test
-
-echo "Flattening mp4 files..."
-
-for split in train val test; do
-  find ${ROOT_DIR}/${split} -type f -name "*.mp4" -exec mv {} ${ROOT_DIR}/${split}/ \;
-  find ${ROOT_DIR}/${split} -type d ! -path ${ROOT_DIR}/${split} -exec rm -rf {} +
-done
-
-echo "Done."
-```
-
-This will give you 
-```
-ROOT_DIR/
-├── train/
-│   ├── video_00000.mp4
-│   ├── video_00001.mp4
-│   └── ...
-├── val/
-│   ├── video_10000.mp4
-│   └── ...
-└── test/
-    ├── video_15000.mp4
-    └── ...
-```
-
-## 2.2 Prepare CLEVRER Stable-WM dataset
-```
-% set ROOT_DIR in the file first
-python dataset/clevrer/clevrer.py
-```
-* This will create clevrer dataset under stable-wm cache directory (by calling `swm.data.utils.get_cache_dir()`) in a desired format.
-* We will use deterministic train / val  setup - your cache directory will look like
-
-```
-.stable_worldmodel
-├── clevrer_train/
-|    ├── data-00000-of-000001.arrow
-|    ├── dataset_info.json
-|    ├── state.json
-|    └── videos
-|         └──0_pixels.mp4 ...
-├── clevrer_val/
-|    ├── data-00000-of-000001.arrow
-|    ├── dataset_info.json
-|    ├── state.json
-|    └── videos
-|         └──10000_pixels.mp4 ...
-└── clevrer_test/
-     ├── data-00000-of-000001.arrow
-     ├── dataset_info.json
-     ├── state.json
-     └── videos
-          └──15000_pixels.mp4 ...
-```
-
-## 2.3 Prepare CLEVRER Videosaur dataset
-```
-% You don't need this if you are not running videosaur.
-% set ROOT_DIR in the file first
-python dataset/clevrer/save_clevrer_webdataset_mp4.py
-```
-This will give you 
-```
-ROOT_DIR/
-├── train/
-├── val/
-├── test/
-└── clevrre_wds_mp4
-    ├── train
-    |   └── clevrer-train-000000.tar ...
-    └── val
-        └── clevrer-val-000000.tar ...
-
-```
-
-## 2.4 Download PushT
-* Download data from https://drive.google.com/drive/folders/1M7PfMRzoSujcUkqZxEfwjzGBIpRMdl88
-* Unzip and put them under `swm.data.utils.get_cache_dir()`.
-* rename folder as a desired format
-
-```
-mv pusht_expert_train_video pusht_expert_train
-mv pusht_expert_val_video pusht_expert_val
-
-```
-
-This will give you
-
-```
-.stable_worldmodel
-├── pusht_expert_train/
-|    ├── data-00000-of-000001.arrow
-|    ├── dataset_info.json
-|    ├── state.json
-|    └── videos
-|         └──0_pixels.mp4 ...
-└── pusht_expert_val/
-     ├── data-00000-of-000001.arrow
-     ├── dataset_info.json
-     ├── state.json
-     └── videos
-          └──0_pixels.mp4 ...
-```
-
-## 2.5 Generate randomly-moving PushT data (if needed)
-```
-PYTHONPATH=. python dataset/pusht/pusht_all_moving_videogen.py \
-    --num_videos 10000 \
-    --output_dir my_dataset \
-```
-
-# 3. Training and WM-checkpoints
-
-## 3.1 How to Run
+## Summary
+World models require robust relational understanding to support prediction, reasoning, and control. While object-centric representations provide a useful abstraction, they are not sufficient to capture interaction-dependent dynamics. We therefore propose C-JEPA, a simple and flexible object-centric world model that extends masked joint embedding prediction from image patches to object-centric representations. 
+By applying object-level masking that requires an object's state to be inferred from other objects, C-JEPA induces latent interventions with counterfactual-like effects and prevents shortcut solutions, making interaction reasoning essential.
+Empirically, C-JEPA leads to consistent gains in visual question answering, with **an absolute improvement of about 20\% in counterfactual reasoning** compared to the same architecture without object-level masking. On agent control tasks, C-JEPA enables substantially more efficient planning by **using only 1\% of the total latent input features required by patch-based world models**, while achieving comparable performance. Finally, we provide a formal analysis demonstrating that object-level masking induces a causal inductive bias via latent interventions.
 
 
-Use scripts below, or refer to the command if you are not using slurm.
+## Environment Setup
+Please refer to [ENV.md](docs/ENV.md) for environment setup.
 
-```sh
-sbatch script/{dataset}/run_videowm.sh # run DINOwm with mp4
-sbatch script/{dataset}/run_videowm_reg.sh # run DINOwm, but with dinov2_with_register checkpoint
-sbatch script/{dataset}/run_ocwm.sh # run object centric world model, need VIDEOSAUR checkpoint downloaded from above.
+## Dataset Preparation
+Please refer to [DATASET.md](docs/DATASET.md) for dataset preparation.
 
-# make sure you load the correct checkpoint while running below!!
-sbatch script/{dataset}/run_ocwm.sh # run object centric world model, need VIDEOSAUR checkpoint downloaded from above.
-sbatch script/{dataset}/run_causalwm.sh # run causalwm, which has causal slot masking. style predictor.
+## Object-Centric Model / Representations for C-JEPA
+C-JEPA relies on object-centric encoders to extract object-centric representations. You can train the encoder by yourself, or download the model checkpoints from HuggingFace, or download the pre-extracted slot representations.
 
-# for clevrer, running causalwm with pre-extracted slot embeddings is available. (Extraction in Sec 4.1)
-# x10 times faster
-sbatch script/clevrer/run_causalwm_from_slot.sh
+![visualization](static/encoder_vis.png)
 
-# only for pusht. When training cjepa predictor, it considers Action and Proprioception as causal nodes as well.
-sbatch script/pusht/run_causalwm_AP_node.sh 
-```
-
-* All config files are in `configs/`.
-* All customed models are in `custom_models/`.
-* Actual training files are in `train/`.
-
-
-# 4. CLEVRER VQA
-
-## 4.1 Prepare data for ALOE
- * Download checkpoints from https://drive.google.com/drive/u/3/folders/1by2KKB6f8y4KEQaMiRt1R8PswgAgoaft
- * Extract slot representation from each checkpoint by 
-
-  ```sh
-  % PATH-TO-DATA should have clevrer_train clever_val clevrer_test with /videos under them respectively.
-
-  PYTHONPATH=. python slotformer/base_slots/extract_videosaur.py \
-    --weight=PATH-TO-CKPT-FILE \
-    --data_root=PATH-TO-DATA   \ % swm.data.utils.get_cache_dir() or equivalent
-    --save_path=DIR-TO-SAVE-PIL  % should contain "clevrer_slots"
+### 1. Train Object-Centric Encoder
+* Train VideoSAUR on CLEVRER
   ```
-  * Extracted pkl will look like:
+  PYTHONPATH=. python src/thrid_party/videosaur/videosaur/train.py \
+      src/thrid_party/videosaur/configs/videosaur/clevrer_dinov2_hf.yml \
+      dataset.train_shards="clevrer-train_videos-{000000..0000XX}.tar" \
+      dataset.val_shards="clevrer-val_videos-{000000..0000XX}.tar"
   ```
-  # clevrer_slots_{configuration}.pkl :
+
+* Train SAVi on CLEVRER
+
+  refer to slotformer repo to setup data for train savi
+
+  ```
+  PYTHONPATH=. torchrun --nproc_per_node=3 src/aloe_train.py \
+    --task base_slots \
+    --params src/thrid_party/slotformer/base_slots/configs/stosavi_clevrer_params.py \
+    --exp_name clevrer_savi_reproduce \
+    --out_dir $OUTDIR \
+    --fp16 --ddp --cudnn
+  ```
+
+* Train VideoSAUR on PushT
+  ```
+  PYTHONPATH=. python src/thrid_party/videosaur/videosaur/train.py \
+      src/thrid_party/videosaur/configs/videosaur/pusht_dinov2_hf.yml \
+      dataset.train_shards="pusht_mixed/train/pusht-train-{000000..000034}.tar" \
+      dataset.val_shards="pusht_mixed/validation/pusht-val-{000000..000007}.tar"
+  ```
+
+### 2. Model Checkpoints
+| Dataset      | Encoder    |  Hyperparams                      | Checkpoint Link                                                                                             |
+|--------------|------------------|---------------------------|------------------------------------------------------------------------------------------------------------|
+| CLEVRER       | VideoSAUR   | clevrer_dinov2_hf.yml        | [Checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/clevrer_videosaur_model.ckpt) |
+| CLEVRER       | SAVi   | stosavi_clevrer_params.py        | [Checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/clevrer_savi_model.pth) |
+| Push-T       | VideoSAUR   | pusht_dinov2_hf.yml        | [Checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/pusht_videosaur_model.ckpt) |
+
+### 3. Pre-extracted Slot Representations
+| Dataset      | Encoder    |  Config                      | Checkpoint Link                                                                                             |
+|--------------|------------------|---------------------------|------------------------------------------------------------------------------------------------------------|
+| CLEVRER       | VideoSAUR   | clevrer/ocwm_clevrer.yml        | [Checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/clevrer_videosaur_slots.pkl) |
+| CLEVRER       | SAVi   | clevrer/causalwm_clevrer.yml        | [Checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/clevrer_savi_slots.pkl) |
+| PUSHT       | VideoSAUR   | pusht/ocwm_pusht.yml        | [Checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/pusht_videosaur_slots.pkl) |
+
+
+## Train / Download C-JEPA
+
+### Extract slot representations with the checkpoints
+
+* CLEVRER SAVi slots
+  ```
+  PYTHONPATH=. python slotformer/base_slots/extract_slots.py --params slotformer/base_slots/configs/stosavi_clevrer_params.py  --weight $WEIGHT  --save_path clevrer_savi_slots.pkl
+  ```
+* CLEVRER VideoSAUR 
+  ```
+  PYTHONPATH=. python slotformer/base_slots/extract_videosaur.py --weight $WEIGHT --data_root="~/.stable_worldmodel"   --save_path=$SAVE_DIR --dataset="clevrer"  --videosaur_config="src/thrid_party/videosaur/configs/videosaur/clevrer_dinov2_hf.yml" 
+  ```
+* PushT VideoSAUR Slots
+  ```
+  PYTHONPATH=. python slotformer/base_slots/extract_videosaur.py --weight $WEIGHT --data_root="~/.stable_worldmodel"   --save_path=$SAVE_DIR  --dataset="pusht_expert"  --videosaur_config="videosaur/configs/videosaur/pusht_dinov2_hf.yml"   --params="slotformer/aloe_pusht_params.py"
+  ```
+
+* Extracted pkl will look like:
+
+  ```
   {
-      'train': {'0_pixels.mp4': slots, '1_pixels.mp4': slots, ...},  # slots: [128, 7, 128] each
+      'train': {'0_pixels.mp4': slots, '1_pixels.mp4': slots, ...},  # slots: [T, N, 128] each
       'val': {...},
       'test': {...}
   }
   ```
 
+### 2. Run C-JEPA with pre-extracted slot representations
 
- 
 
-  ## 4.2 Run ALOE 
+
+Use scripts below, or refer to the command if you are not using slurm.
+
+```sh
+sh script/clevrer/run_causalwm_from_slot.sh
+sh script/pusht/run_causalwm_AP_node_from_slot_videosaur.sh 
+```
+
+## Evaluation
+### Evaluate Control on Push-T
+  ```
+  sh scripts/pusht/run_planning.sh
+  ```
+
+### Evaluate Visual Reasoning on CLEVRER
+
   * This step needs slots from 4.1 and CJEPA checkpoint from 3.1
   * We will first rollout slots (from 128 frame to 160 frame) with checkpoint
 
@@ -230,7 +127,7 @@ sbatch script/pusht/run_causalwm_AP_node.sh
   ```
   # rollout_clevrer_slots_{configuration}.pkl :
   {
-      'train': {'0_pixels.mp4': slots, '1_pixels.mp4': slots, ...},  # slots: [160, 7, 128] each
+      'train': {'0_pixels.mp4': slots, '1_pixels.mp4': slots, ...},  # slots: [T, N, 128] each
       'val': {...},
       'test': {...}
   }

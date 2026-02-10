@@ -12,7 +12,7 @@ globals:
   BATCH_SIZE_PER_GPU: 32
   TOTAL_BATCH_SIZE: "${mul: ${.NUM_GPUS}, ${.BATCH_SIZE_PER_GPU}}"
   BASE_LR: 0.0001
-  SIM_WEIGHT: 0.1
+  SIM_WEIGHT: 0.3
   SIM_TEMP: 0.15
 
 wandb:
@@ -33,7 +33,6 @@ trainer:
 
 optimizer:
   name: Adam
-  # Scale learning rate by batch size: take base lr once for every 32 samples
   lr: "${eval_dummy: 'a / 32 * b', ${globals.TOTAL_BATCH_SIZE}, ${globals.BASE_LR}}"
   lr_scheduler:
     name: exp_decay_with_warmup
@@ -135,8 +134,8 @@ dataset:
   batch_size: ${globals.BATCH_SIZE_PER_GPU}
   val_batch_size: ${globals.BATCH_SIZE_PER_GPU}
   val_size: 200
-  num_workers: 5 # increase this if you have more CPU cores
-  num_val_workers: 4
+  num_workers: 8 
+  num_val_workers: 8
   train_pipeline:
     chunk_size: 6
     num_frameskip: 2    # keep every 2nd frame: 0,2,4,...
