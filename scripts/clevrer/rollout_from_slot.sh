@@ -1,14 +1,3 @@
-#!/bin/bash
-#SBATCH --job-name=clevrer-cjepa
-#SBATCH --time=5-00:00:00
-#SBATCH --partition=gpus
-#SBATCH --ntasks=1
-#SBATCH --gres=gpu:nvidia_rtx_a6000:1
-#SBATCH --cpus-per-task=9
-#SBATCH --mem=50G
-#SBATCH --output=slurm-%j.out
-#SBATCH --error=slurm-%j.err
-
 echo "SLURM job started on: $(date)"
 echo "Node list: $SLURM_NODELIST"
 
@@ -17,7 +6,7 @@ export CKPTPATH='/cs/data/people/hnam16/.stable_worldmodel/119p_final_predictor.
 export SLOTPATH="/cs/data/people/hnam16/data/modified_extraction/clevrer_savi_reproduced.pkl"
 
 
-python train/train_causalwm_from_pusht_slot_savi.py \
+python train/train_causalwm_from_clevrer_slot.py \
     rollout.rollout_only=true \
     rollout.rollout_checkpoint=$CKPTPATH \
     cache_dir="/cs/data/people/hnam16/.stable_worldmodel" \

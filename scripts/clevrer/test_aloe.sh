@@ -1,14 +1,3 @@
-#!/bin/bash
-#SBATCH --job-name=test
-#SBATCH --time=5-00:00:00
-#SBATCH --partition=gpus
-#SBATCH --ntasks=1
-#SBATCH --gres=gpu:nvidia_titan_rtx:1
-#SBATCH --cpus-per-task=5
-#SBATCH --mem=30G
-#SBATCH --output=aloe-%j.out
-#SBATCH --error=aloe-%j.err
-
 echo "SLURM job started on: $(date)"
 echo "Node list: $SLURM_NODELIST"
 

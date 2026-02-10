@@ -1,17 +1,3 @@
-#!/bin/bash
-#SBATCH --job-name=228
-#SBATCH --time=5-00:00:00
-#SBATCH --partition=gpus
-#SBATCH --ntasks=1
-#SBATCH --gres=gpu:nvidia_l40:1
-#SBATCH --cpus-per-task=5
-#SBATCH --mem=50G
-#SBATCH --output=aloe-%j.out
-#SBATCH --error=aloe-%j.err
-
-echo "SLURM job started on: $(date)"
-echo "Node list: $SLURM_NODELIST"
-
 export PYTHONPATH=$(pwd)
 
 # torchrun --nproc_per_node=2 --master-port=29501 \

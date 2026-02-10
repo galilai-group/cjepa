@@ -1,17 +1,3 @@
-#!/bin/bash
-#SBATCH --job-name=219
-#SBATCH --time=5-00:00:00
-#SBATCH --partition=gpus
-#SBATCH --ntasks=1
-#SBATCH --gres=gpu:geforce_gtx_2080_ti:1
-#SBATCH --cpus-per-task=9
-#SBATCH --mem=30G
-#SBATCH --output=slurm-%j.out
-#SBATCH --error=slurm-%j.err
-
-echo "SLURM job started on: $(date)"
-echo "Node list: $SLURM_NODELIST"
-
 export PYTHONPATH=$(pwd)
 # becareful if you have special characters in the path like '=': Need escape it with '\'
 export SLOTPATH="/cs/data/people/hnam16/data/modified_extraction/clevrer_slots_step\=100000_weight03_lr1e-4_clevrer.pkl"

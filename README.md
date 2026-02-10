@@ -14,6 +14,7 @@ Empirically, C-JEPA leads to consistent gains in visual question answering, with
 
 ## Environment Setup
 Please refer to [ENV.md](docs/ENV.md) for environment setup.
+Our repository is mainly built on top of [Stable-WorldModel](https://galilai-group.github.io/stable-worldmodel/) and [Stable-Pretraining](https://galilai-group.github.io/stable-pretraining/).
 
 ## Dataset Preparation
 Please refer to [DATASET.md](docs/DATASET.md) for dataset preparation.
@@ -143,3 +144,50 @@ sh script/pusht/run_causalwm_AP_node_from_slot_videosaur.sh
   ```
   sbatch scripts/run_aloe_rollout.sh
   ```
+
+.
+├── configs
+│   ├── config_train_causal_clevrer_slot.yaml
+│   ├── config_train_causal_pusht_slot.yaml
+│   ├── config_train_causal_savi.yaml
+│   └── config_train_causal.yaml
+├── dataset
+│   ├── clevrer
+│   └── pusht
+├── docs
+│   ├── DATASET.md
+│   ├── ENV.md
+│   └── VIDEOSAUR_README.md
+├── README.md
+├── scripts
+│   ├── clevrer
+│   │   ├── rollout_from_slot.sh
+│   │   ├── test_aloe.sh
+│   │   ├── train_aloe.sh
+│   │   ├── train_cjepa_from_slot.sh
+│   │   └── train_cjepa.sh
+│   └── pusht
+│       ├── test_planning.sh
+│       ├── train_cjepa_from_slot.sh
+│       └── train_cjepa.sh
+├── src
+│   ├── aloe_train.py
+│   ├── cjepa_predictor.py
+│   ├── custom_codes
+│   ├── plan
+│   │   ├── config.yaml
+│   │   ├── launcher
+│   │   ├── run.py
+│   │   └── solver
+│   ├── third_party
+│   │   ├── __init__.py
+│   │   ├── stable-pretraining
+│   │   ├── stable-worldmodel
+│   │   ├── slotformer
+│   │   ├── nerv
+│   │   └── videosaur
+│   ├── train
+│   └── world_models
+└── static
+    ├── architecture.png
+    └── encoder_vis.png
