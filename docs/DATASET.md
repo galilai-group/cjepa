@@ -1,11 +1,15 @@
+# Dataset
+* If you are using pre-extracted slots for training C-JEPA, you can skip everything here.
+* If you are using VideoSAUR for object centric encoder (either by training yourself or downloading the checkpoint), you need to follow the instruction here to prepare the dataset.
+* If you are using SAVi for object centric encoder (either by training yourself or downloading the checkpoint), please follow the [instruction](https://github.com/pairlab/SlotFormer/blob/master/docs/data.md) in slotformer repo to setup data. Although, we only use SAVi for CLEVRER dataset, you can also use SAVi for PushT by following the similar data preparation instruction.
 
 
-# 2. Dataset
-## 2.1 Download clevrer (~24G total)
+## CLEVRER
+### 1. Download original data (~24G total)
 ```sh
 #!/usr/bin/env bash
 
-ROOT_DIR="/users/hnam16/scratch/clevrer_video"
+ROOT_DIR="./clevrer_video"
 
 mkdir -p \
   ${ROOT_DIR}/train \
@@ -53,7 +57,9 @@ ROOT_DIR/
     └── ...
 ```
 
-## 2.2 Prepare CLEVRER Stable-WM dataset
+### 2. Reformat CLEVRER for Stable-WorldModel
+If you are using pre-extracted slots, you can skip this step.
+This step is required for extracting slots from object-centric encoders.
 ```
 % set ROOT_DIR in the file first
 python dataset/clevrer/clevrer.py
@@ -83,7 +89,7 @@ python dataset/clevrer/clevrer.py
           └──15000_pixels.mp4 ...
 ```
 
-## 2.3 Prepare CLEVRER Videosaur dataset
+### 3 Prepare CLEVRER Videosaur dataset
 ```
 % You don't need this if you are not running videosaur.
 % set ROOT_DIR in the file first
@@ -103,15 +109,16 @@ ROOT_DIR/
 
 ```
 
-## 2.4 Download PushT
-* Download data from https://drive.google.com/drive/folders/1M7PfMRzoSujcUkqZxEfwjzGBIpRMdl88
-* Unzip and put them under `swm.data.utils.get_cache_dir()`.
+## Push-T
+
+### 1. Download PushT for Stable-WorldModel
+* Download `pusht_expert_{train/val}_video` data from [link](https://drive.google.com/drive/folders/1M7PfMRzoSujcUkqZxEfwjzGBIpRMdl88).
+* Unzip and put them under `swm.data.utils.get_cache_dir()`. Default directory is `~/.stable_worldmodel/`.
 * rename folder as a desired format
 
 ```
 mv pusht_expert_train_video pusht_expert_train
 mv pusht_expert_val_video pusht_expert_val
-
 ```
 
 This will give you
@@ -132,9 +139,18 @@ This will give you
           └──0_pixels.mp4 ...
 ```
 
-## 2.5 Generate randomly-moving PushT data (if needed)
+### 2. Prepare PushT Videosaur dataset
+
+* Generate randomly-moving PushT data for better object-centric learning.
 ```
 PYTHONPATH=. python dataset/pusht/pusht_all_moving_videogen.py \
     --num_videos 10000 \
     --output_dir my_dataset \
+```
+
+* Generate webdataset shards
+We will mix the original videos (video_10000.mp4 - video_18684.mp4) with the 10000 randomly moving videos.
+You can set the directory paths in the file before running.
+```
+PYTHONPATH=. python dataset/pusht/save_mixed_pusht_webdataset_mp4.py
 ```

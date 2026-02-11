@@ -45,30 +45,14 @@ def make_shards(input_dir, split, out_dir, maxcount=512):
 
     print(f"[OK] Wrote {written} samples into shards at {out_dir}")
 
-# Example:
 
-# train_mixing = [
-#     "/cs/data/people/hnam16/data/pusht_independent_videos_with_noise/train",
-#     "/cs/data/people/hnam16/data/pusht_for_mixing"
-# ]
-# make_shards(train_mixing, "train", "/cs/data/people/hnam16/data/pusht_mixed_ind_noise_wds_mp4/train", maxcount=512)
+train_mixing = [
+    "/cs/data/people/hnam16/data/pusht_independent_videos_with_noise/train",
+    "/cs/data/people/hnam16/data/pusht_for_mixing"
+]
+make_shards(train_mixing, "train", "/cs/data/people/hnam16/data/pusht_mixed_ind_noise_wds_mp4/train", maxcount=512)
 
 validation_mixing = [
     "/cs/data/people/hnam16/data/pusht_independent_videos_with_noise/val"
 ]
 make_shards(validation_mixing, "val", "/cs/data/people/hnam16/data/pusht_mixed_ind_noise_wds_mp4/validation", maxcount=128)
-
-
-
-# train_mixing = [
-#     "/cs/data/people/hnam16/data/pusht_independent_videos_with_mild_noise/train",
-#     "/cs/data/people/hnam16/data/pusht_for_mixing"
-# ]
-# make_shards(train_mixing, "train", "/cs/data/people/hnam16/data/pusht_mixed_ind_mild_noise_wds_mp4/train", maxcount=512)
-
-# validation_mixing = [
-#     "/cs/data/people/hnam16/data/pusht_independent_videos_with_mild_noise/val"
-# ]
-# make_shards(validation_mixing, "val", "/cs/data/people/hnam16/data/pusht_mixed_ind_mild_noise_wds_mp4/validation", maxcount=128)
-
-
