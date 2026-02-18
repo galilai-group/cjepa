@@ -24,7 +24,7 @@ monitor_rankme: false
 rankme_queue_length: 2048 
 
 dataset_name: clevrer
-cache_dir: "/cs/data/people/hnam16/.stable_worldmodel"
+cache_dir: "~/.stable_worldmodel"
 
 output_model_name: causal_world_model
 training_type: video  # options: video, wm

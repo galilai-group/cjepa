@@ -1,22 +1,20 @@
 export PYTHONPATH=$(pwd)
 
-# don't forget to escape special characters like '=' with '\'
-export SLOTPATH="/cs/data/people/hnam16/data/modified_extraction/pusht_expert_slots_videosaur_172.pkl"
-# export SLOTPATH="/cs/data/people/hnam16/data/modified_extraction/pusht_savi_101.pkl"
+# Don't forget to escape special characters like '=' with '\'
+export SLOTPATH="path/to/extracted/slot/pkl"
+# Put the path to the pretrained OC checkpoint here
+export OC_CKPT_PATH="path/to/pretrained/oc/ckpt.ckpt"
 
-# this is for saving swm ckpt for smooth planning.. this should be matched with the pusht ckpt used for slot extraction
-export CKPT_PATH="/cs/data/people/hnam16/.stable_worldmodel/artifacts/oc-checkpoints/videosaur_172.ckpt"
 
-# torchrun --nproc_per_node=3 --master-port=29501 \
+# action, proprio, state meta files can be downloaded from the huggingface
 
-# Caution!! Set output_model_name properly 
-python train/train_causalwm_AP_node_pusht_slot.py \
-    cache_dir="/cs/data/people/hnam16/.stable_worldmodel" \
-    output_model_name="263p" \
+python src/train/train_causalwm_AP_node_pusht_slot.py \
+    cache_dir="~/.stable_worldmodel" \
+    output_model_name="pusht_cjepa" \
     dataset_name="pusht_expert" \
     num_workers=8 \
     batch_size=256 \
-    trainer.max_epochs=20 \
+    trainer.max_epochs=30 \
     num_masked_slots=1 \
     predictor_lr=5e-4 \
     proprio_encoder_lr=1e-4  \
@@ -30,8 +28,11 @@ python train/train_causalwm_AP_node_pusht_slot.py \
     videosaur.SLOT_DIM=128 \
     predictor.heads=16 \
     embedding_dir=${SLOTPATH} \
-    model.load_weights=${CKPT_PATH} \
-    use_hungarian_matching=false \
+    model.load_weights=${OC_CKPT_PATH} \
+    action_dir='/your/own/path/pusht_expert_action_meta.pkl' \
+    proprio_dir='/your/own/path/pusht_expert_proprio_meta.pkl' \
+    state_dir='/your/own/path/pusht_expert_state_meta.pkl' \
+    use_hungarian_matching=false 
 
 
 

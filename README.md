@@ -56,8 +56,8 @@ C-JEPA relies on object-centric encoders to extract object-centric representatio
   ```
   PYTHONPATH=. python src/third_party/videosaur/videosaur/train.py \
       src/third_party/videosaur/configs/videosaur/pusht_dinov2_hf.yml \
-      dataset.train_shards="pusht_mixed/train/pusht-train-{000000..000034}.tar" \
-      dataset.val_shards="pusht_mixed/validation/pusht-val-{000000..000007}.tar"
+      dataset.train_shards="pusht_mixed/train/pusht-train-{000000..0000xx}.tar" \
+      dataset.val_shards="pusht_mixed/validation/pusht-val-{000000..00000x}.tar"
   ```
 
 ### 2. Model Checkpoints
@@ -92,7 +92,7 @@ Use this only if you want to extract slots by yourself. If you are using pre-ext
   ```
 * PushT VideoSAUR Slots
   ```
-  PYTHONPATH=. python src/third_party/slotformer/base_slots/extract_videosaur.py --weight $WEIGHT --data_root="~/.stable_worldmodel"   --save_path=$SAVE_DIR  --dataset="pusht_expert"  --videosaur_config="src/third_party/videosaur/configs/videosaur/pusht_dinov2_hf.yml"   --params="src/third_party/slotformer/base_slots/configs/aloe_pusht_params.py"
+  PYTHONPATH=. python src/third_party/slotformer/base_slots/extract_videosaur.py --weight $WEIGHT --data_root="~/.stable_worldmodel"   --save_path=$SAVE_DIR  --dataset="pusht_expert"  --videosaur_config="src/third_party/videosaur/configs/videosaur/pusht_dinov2_hf.yml"   --params="src/third_party/slotformer/aloe_pusht_params.py"
   ```
 
 * Extracted pkl will look like:
@@ -137,7 +137,7 @@ sh script/pusht/train_cjepa_from_slot.sh
 ## Evaluation
 ### Evaluate Control on Push-T
   ```
-  sh scripts/pusht/run_planning.sh
+  sh scripts/pusht/test_planning.sh
   ```
 
 ### Evaluate Visual Reasoning on CLEVRER

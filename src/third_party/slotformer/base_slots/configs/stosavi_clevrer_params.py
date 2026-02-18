@@ -20,7 +20,7 @@ class SlotFormerParams(BaseParams):
 
     # data settings
     dataset = 'clevrer'
-    data_root = '/cs/data/people/hnam16/data/clevrer_for_savi/' # modify this to your data directory
+    data_root = 'your/path/to/data/clevrer_for_savi/' # modify this to your data directory
     n_sample_frames = 6  # train on video clips of 6 frames
     frame_offset = 1  # no offset
     filter_enter = False  # no need to filter videos when training SAVi

@@ -144,10 +144,10 @@ def process_videosaur(model, params, args):
         print(f'Processing {params.dataset} video test set...')
         test_slots = extract_video_slots_videosaur(model, test_set, chunk_len=chunk_len, num_frameskip=args.num_frameskip)
 
-    print(f'Processing {params.dataset} video val set...')
+    print(f'Processing {params.dataset} video val set...(len : {len(val_set)})')
     val_slots = extract_video_slots_videosaur(model, val_set, chunk_len=chunk_len, num_frameskip=args.num_frameskip)
 
-    print(f'Processing {params.dataset} video train set...')
+    print(f'Processing {params.dataset} video train set...(len : {len(train_set)})')
     train_slots = extract_video_slots_videosaur(model, train_set, chunk_len=chunk_len, num_frameskip=args.num_frameskip)
     
     def map_files_slots(file_list, slots_list, split_name):
@@ -194,11 +194,11 @@ def process_videosaur(model, params, args):
 def main():
     parser = argparse.ArgumentParser(description='Extract slots from videos (Videosaur)')
     parser.add_argument('--params', default="src/third_party/slotformer/clevrer_vqa/configs/aloe_clevrer_params.py", type=str, )
-    parser.add_argument('--data_root', default="/cs/data/people/hnam16/.stable_worldmodel")
+    parser.add_argument('--data_root', default="~/.stable_worldmodel")
     parser.add_argument('--videosaur_config', default="videosaur/configs/videosaur/clevrer_dinov2_hf.yml", type=str, 
                         help='path to videosaur YAML config')
-    parser.add_argument('--weight', default = "logs/videosaur/2025-12-25-19-27-13_clevrer_dinov2/checkpoints/step=100000.ckpt", type=str,  help='pretrained model weight')
-    parser.add_argument('--save_path', default="/cs/data/people/hnam16/data/clevrer_slots", type=str,  help='path to save slots')
+    parser.add_argument('--weight', default = "weight.ckpt", type=str,  help='pretrained model weight')
+    parser.add_argument('--save_path', default="your/path/to/data/clevrer_slots", type=str,  help='path to save slots')
     parser.add_argument('--num_frameskip', default=1, type=int)
     parser.add_argument('--limit', default=None, type=int, help='limit number of videos per split (for smoke testing)')
     parser.add_argument('--smoke', action='store_true', help='run a smoke test that skips model and uses fake slots to test save/validation logic')
@@ -224,6 +224,8 @@ def main():
 
     # Append checkpoint basename to save_path
     ckpt_name = os.path.splitext(os.path.basename(args.weight))[0]
+    if not args.save_path.endswith('.pkl'):
+        args.save_path = os.path.join(args.save_path, f"extracted.pkl")
     save_dir = os.path.dirname(args.save_path)
     base, ext = os.path.splitext(os.path.basename(args.save_path))
     if ext == '':

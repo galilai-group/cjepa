@@ -47,12 +47,11 @@ def make_shards(input_dir, split, out_dir, maxcount=512):
 
 
 train_mixing = [
-    "/cs/data/people/hnam16/data/pusht_independent_videos_with_noise/train",
-    "/cs/data/people/hnam16/data/pusht_for_mixing"
-]
-make_shards(train_mixing, "train", "/cs/data/people/hnam16/data/pusht_mixed_ind_noise_wds_mp4/train", maxcount=512)
+    "path/to/generated/train", # This folder should contain video_00000.mp4 - video_09999.mp4 from generated data.
+    "path/to/expert/train" ]  # This folder should only contain video_10000.mp4 - video_18684.mp4 from pusht_expert_train
+make_shards(train_mixing, "train", "your/path/to/data/pusht_mixed_ind_noise_wds_mp4/train", maxcount=512)
 
 validation_mixing = [
-    "/cs/data/people/hnam16/data/pusht_independent_videos_with_noise/val"
-]
-make_shards(validation_mixing, "val", "/cs/data/people/hnam16/data/pusht_mixed_ind_noise_wds_mp4/validation", maxcount=128)
+    "path/to/generated/validation"
+] # This folder should contain video_10000.mp4 - video_10999.mp4 from generated data. 
+make_shards(validation_mixing, "val", "your/path/to/data/pusht_mixed_ind_noise_wds_mp4/validation", maxcount=128)

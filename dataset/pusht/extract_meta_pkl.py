@@ -5,10 +5,10 @@ import torch
 import numpy as np
 from tqdm import trange, tqdm
 
-slotpath="/cs/data/people/hnam16/data/modified_extraction/pusht_expert_slots_pushtnoise_videosaur_lr1e-4_w03_step=100000.pkl"
-save_dir = "/cs/data/people/hnam16/data/modified_extraction"
-train_meta = load_from_disk("/cs/data/people/hnam16/.stable_worldmodel/pusht_expert_train")
-val_meta = load_from_disk("/cs/data/people/hnam16/.stable_worldmodel/pusht_expert_val")
+slotpath="/your/own/path/pusht_expert_slots_pushtnoise_videosaur_lr1e-4_w03_step=100000.pkl"
+save_dir = "/your/own/path"
+train_meta = load_from_disk("~/.stable_worldmodel/pusht_expert_train")
+val_meta = load_from_disk("~/.stable_worldmodel/pusht_expert_val")
 
 with open(slotpath, "rb") as f:
     data = pkl.load(f) 

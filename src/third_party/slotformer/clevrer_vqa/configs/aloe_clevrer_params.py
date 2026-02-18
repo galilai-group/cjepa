@@ -22,7 +22,7 @@ class SlotFormerParams(BaseParams):
     # data settings
     dataset = 'clevrer_slots'
     data_root = 'dataset/clevrer'
-    slots_root = '/cs/data/people/hnam16/data/modified_extraction/savi_slots_key_changed.pkl'
+    slots_root = '/your/own/path/savi_slots_key_changed.pkl'
     # put absolute path here
     cur_dir = os.path.dirname(os.path.realpath(__file__))
     vocab_file = os.path.join(cur_dir, '../datasets/cache/CLEVRER_vocab.json')

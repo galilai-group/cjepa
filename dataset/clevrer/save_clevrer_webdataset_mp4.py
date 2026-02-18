@@ -9,7 +9,7 @@ import numpy as np
 from torchcodec.decoders import VideoDecoder
 
 ROOT_DIR="clevrer_video"
-# "/cs/data/people/hnam16/data/clevrer"
+# "your/path/to/data/clevrer"
 
 def make_shards(input_dir, split, out_dir, maxcount=512):
     split_dir = os.path.join(input_dir, split)

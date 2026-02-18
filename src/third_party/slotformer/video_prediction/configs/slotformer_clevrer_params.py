@@ -21,8 +21,8 @@ class SlotFormerParams(BaseParams):
 
     # data settings
     dataset = 'clevrer_slots'
-    data_root = '/cs/data/people/hnam16/data/clevrer_for_savi'
-    slots_root = '/cs/data/people/hnam16/data/modified_extraction/clevrer_savi_reproduced.pkl'
+    data_root = 'your/path/to/data/clevrer_for_savi'
+    slots_root = '/your/own/path/clevrer_savi_reproduced.pkl'
     n_sample_frames = 6 + 10  # 6 burn-in, 10 rollout
     frame_offset = 2  # subsample the video by a factor of 2
     load_img = True

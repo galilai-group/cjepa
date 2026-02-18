@@ -6,7 +6,7 @@ from torchcodec.decoders import VideoDecoder
 
 import stable_worldmodel as swm
 
-ROOT_DIR="/cs/data/people/hnam16/data/clevrer"
+ROOT_DIR="your/path/to/data/clevrer"
 DATASET='clevrer'
 SAVE_DIR = swm.data.utils.get_cache_dir()
 # or if you want to set your own,

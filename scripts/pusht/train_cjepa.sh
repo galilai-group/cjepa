@@ -1,11 +1,11 @@
 export PYTHONPATH=$(pwd)
 
 # becareful if you have special characters in the path like '=': Need escape it with '\'
-export CKPT_PATH="/cs/data/people/hnam16/.stable_worldmodel/artifacts/oc-checkpoints/step\=100000_weight03_lr5e-4_pusht.ckpt"
+export CKPT_PATH="~/.stable_worldmodel/artifacts/oc-checkpoints/step\=100000_weight03_lr5e-4_pusht.ckpt"
 
 torchrun --nproc_per_node=2 --master-port=29505 \
     train/train_causalwm_AP_node.py \
-    cache_dir="/cs/data/people/hnam16/.stable_worldmodel" \
+    cache_dir="~/.stable_worldmodel" \
     output_model_name="57" \
     dataset_name="pusht_expert" \
     num_workers=4 \

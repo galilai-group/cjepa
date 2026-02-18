@@ -2,7 +2,7 @@ checkpoint: logs/videosaur_pusht/2026-01-16-16-53-02_pusht_dinov2/checkpoints/st
 model_config: videosaur/configs/videosaur/clevrer_dinov2_hf.yml
 n_slots: 7
 input:
-  path: /cs/data/people/hnam16/.stable_worldmodel/clevrer_val/videos/12000_pixels.mp4
+  path: ~/.stable_worldmodel/clevrer_val/videos/12000_pixels.mp4
   type: video
   transforms:
     dataset_type: video

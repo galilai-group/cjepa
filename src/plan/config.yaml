@@ -13,7 +13,7 @@ world:
 
 seed: 42
 policy: pusht_expert_world_model_epoch_10 # ckpt name or random
-cache_dir: /cs/data/people/hnam16/.stable_worldmodel/
+cache_dir: ~/.stable_worldmodel/
 
 plan_config:
   horizon: 9 # frame num of action_sequence in rollout. do not include history frames
