@@ -2,14 +2,14 @@ echo "SLURM job started on: $(date)"
 echo "Node list: $SLURM_NODELIST"
 
 export PYTHONPATH=$(pwd)
-export CKPTPATH='/cs/data/people/hnam16/.stable_worldmodel/119p_final_predictor.ckpt'
-export SLOTPATH="/cs/data/people/hnam16/data/modified_extraction/clevrer_savi_reproduced.pkl"
+export CKPTPATH='to/path/to/causalwm_checkpoint.ckpt' 
+export SLOTPATH="to/path/to/extracted/slot/pkl"
 
 
-python train/train_causalwm_from_clevrer_slot.py \
+python src/train/train_causalwm_from_clevrer_slot.py \
     rollout.rollout_only=true \
     rollout.rollout_checkpoint=$CKPTPATH \
-    cache_dir="/cs/data/people/hnam16/.stable_worldmodel" \
+    cache_dir="~/.stable_worldmodel" \
     dataset_name="clevrer" \
     num_workers=8 \
     batch_size=256 \

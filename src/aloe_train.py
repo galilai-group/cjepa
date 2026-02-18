@@ -122,7 +122,7 @@ if __name__ == "__main__":
 
     # import `build_dataset/model/method` function according to `args.task`
     print(f'INFO: training model in {args.task} task!')
-    task = importlib.import_module(f'slotformer.{args.task}')
+    task = importlib.import_module(f'src.third_party.slotformer.{args.task}')
     if args.ddp:
         args.local_rank = int(os.environ.get("LOCAL_RANK", "0"))
     build_dataset = task.build_dataset

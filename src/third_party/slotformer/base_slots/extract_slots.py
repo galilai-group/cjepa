@@ -153,7 +153,7 @@ if __name__ == "__main__":
     params = params.SlotFormerParams()
     if 'physion' in args.params:
         params.dataset = f'physion_{args.subset}'
-    assert params.dataset in args.save_path
+    # assert params.dataset in args.save_path
 
     torch.backends.cudnn.benchmark = True
     main()

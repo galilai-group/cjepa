@@ -428,7 +428,7 @@ class ModelObjectCallBack(Callback):
 # ============================================================================
 # Main Entry Point
 # ============================================================================
-@hydra.main(version_base=None, config_path="../configs", config_name="config_train_causal_pusht_slot")
+@hydra.main(version_base=None, config_path="../../configs", config_name="config_train_causal_pusht_slot")
 def run(cfg):
     """Run training of predictor using pre-extracted slot representations."""
     

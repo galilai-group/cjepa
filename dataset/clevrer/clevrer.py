@@ -9,6 +9,8 @@ import stable_worldmodel as swm
 ROOT_DIR="/cs/data/people/hnam16/data/clevrer"
 DATASET='clevrer'
 SAVE_DIR = swm.data.utils.get_cache_dir()
+# or if you want to set your own,
+# SAVE_DIR = Path("/path/to/your/dataset/directory")
 
 def save_swm_dataset(dir, split):
     # expect path towards a single directory containing all .mp4 video files of clevrer

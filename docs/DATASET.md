@@ -2,6 +2,7 @@
 * If you are using pre-extracted slots for training C-JEPA, you can skip everything here.
 * If you are using VideoSAUR for object centric encoder (either by training yourself or downloading the checkpoint), you need to follow the instruction here to prepare the dataset.
 * If you are using SAVi for object centric encoder (either by training yourself or downloading the checkpoint), please follow the [instruction](https://github.com/pairlab/SlotFormer/blob/master/docs/data.md) in slotformer repo to setup data. Although, we only use SAVi for CLEVRER dataset, you can also use SAVi for PushT by following the similar data preparation instruction.
+* If you are testing downstream (VQA or planning), you need to prepare the dataset for evaluation. 
 
 
 ## CLEVRER
@@ -91,7 +92,7 @@ python dataset/clevrer/clevrer.py
 
 ### 3 Prepare CLEVRER Videosaur dataset
 ```
-% You don't need this if you are not running videosaur.
+% You don't need this if you are not running videosaur for CLEVRER.
 % set ROOT_DIR in the file first
 python dataset/clevrer/save_clevrer_webdataset_mp4.py
 ```

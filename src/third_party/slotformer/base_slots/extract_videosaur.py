@@ -193,7 +193,7 @@ def process_videosaur(model, params, args):
 
 def main():
     parser = argparse.ArgumentParser(description='Extract slots from videos (Videosaur)')
-    parser.add_argument('--params', default="slotformer/clevrer_vqa/configs/aloe_clevrer_params.py", type=str, )
+    parser.add_argument('--params', default="src/third_party/slotformer/clevrer_vqa/configs/aloe_clevrer_params.py", type=str, )
     parser.add_argument('--data_root', default="/cs/data/people/hnam16/.stable_worldmodel")
     parser.add_argument('--videosaur_config', default="videosaur/configs/videosaur/clevrer_dinov2_hf.yml", type=str, 
                         help='path to videosaur YAML config')
@@ -212,7 +212,7 @@ def main():
     params = params.SlotFormerParams()
 
     # sanity check
-    assert params.dataset in args.save_path
+    # assert params.dataset in args.save_path
 
     # load videosaur config & model
     conf = configuration.load_config(args.videosaur_config)

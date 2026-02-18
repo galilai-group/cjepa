@@ -1,13 +1,11 @@
 export PYTHONPATH=$(pwd)
 # becareful if you have special characters in the path like '=': Need escape it with '\'
-export SLOTPATH="/cs/data/people/hnam16/data/modified_extraction/clevrer_slots_step\=100000_weight03_lr1e-4_clevrer.pkl"
-# export SLOTPATH="/cs/data/people/hnam16/.stable_worldmodel/artifacts/oc-checkpoints/savi_slots.pkl"
+export SLOTPATH="path/to/extracted/slot/pkl"
 
-# torchrun --nproc_per_node=3 --master-port=29501 \
 
-python train/train_causalwm_from_clevrer_slot.py \
-    cache_dir="/cs/data/people/hnam16/.stable_worldmodel" \
-    output_model_name="219p" \
+python src/train/train_causalwm_from_clevrer_slot.py \
+    cache_dir="~/.stable_worldmodel" \
+    output_model_name="clevrer_cjepa" \
     dataset_name="clevrer" \
     num_workers=8 \
     batch_size=256 \
@@ -20,7 +18,7 @@ python train/train_causalwm_from_clevrer_slot.py \
     videosaur.NUM_SLOTS=7 \
     videosaur.SLOT_DIM=128 \
     predictor.heads=16 \
-    embedding_dir=$SLOTPATH \
+    embedding_dir=$SLOTPATH 
 
 
 

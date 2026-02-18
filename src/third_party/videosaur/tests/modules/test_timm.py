@@ -3,7 +3,7 @@ import pytest
 import timm
 import torch
 
-import thrid_party.videosaur.videosaur.modules  # noqa: F401
+import third_party.videosaur.videosaur.modules  # noqa: F401
 
 
 @pytest.mark.parametrize(

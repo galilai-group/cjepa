@@ -1,10 +1,7 @@
-echo "SLURM job started on: $(date)"
-echo "Node list: $SLURM_NODELIST"
-
 export PYTHONPATH=$(pwd)
 
-python slotformer/clevrer_vqa/test_clevrer_vqa.py \
-  --params slotformer/clevrer_vqa/configs/aloe_clevrer_param_for_test.py \
-  --weight '/cs/data/people/hnam16/aloe_checkpoint/226_model_400.pth' \
-  --slots_root_override '/cs/data/people/hnam16/data/modified_extraction/rollout_clevrer_savi_reproduced_ocvp.pkl' \
+python src/third_party/slotformer/clevrer_vqa/test_clevrer_vqa.py \
+  --params src/third_party/slotformer/clevrer_vqa/configs/aloe_clevrer_param_for_test.py \
+  --weight 'path/to/aloe/model/weight' \
+  --slots_root_override '/path/to/rollout/slot' \
   --validate

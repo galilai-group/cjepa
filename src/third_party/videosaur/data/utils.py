@@ -10,9 +10,9 @@ import tqdm
 
 def get_default_dir(subdir):
     try:
-        import thrid_party.videosaur.videosaur.data
+        import third_party.videosaur.videosaur.data
 
-        default_dir = thrid_party.videosaur.videosaur.data.get_data_root_dir()
+        default_dir = third_party.videosaur.videosaur.data.get_data_root_dir()
     except ImportError:
         default_dir = ".."
 

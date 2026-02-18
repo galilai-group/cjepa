@@ -363,7 +363,7 @@ class ModelObjectCallBack(Callback):
 # ============================================================================
 # Main Entry Point
 # ============================================================================
-@hydra.main(version_base=None, config_path="../configs", config_name="config_train_causal")
+@hydra.main(version_base=None, config_path="../../configs", config_name="config_train_causal")
 def run(cfg):
     """Run training of predictor"""
 
