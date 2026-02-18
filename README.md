@@ -120,19 +120,19 @@ sh script/pusht/train_cjepa_from_slot.sh
 
 | Dataset      |   OC-Backbone    |    Masked Slots / Total Slots    | Checkpoint Link                                                 |
 |--------------|------------------|---------------------------|------------------------------------------------------------------|
-| CLEVRER       | VideoSAUR   | 0/7       | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/clevrer_videosaur_0.ckpt)                             |
-| CLEVRER       | VideoSAUR   | 1/7       | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/clevrer_videosaur_1.ckpt)                             |
-| CLEVRER       | VideoSAUR   | 2/7      | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/clevrer_videosaur_2.ckpt)                             |
-| CLEVRER       | VideoSAUR   | 3/7      | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/clevrer_videosaur_3.ckpt)                             |
-| CLEVRER       | VideoSAUR   | 4/7 (*)     | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/clevrer_videosaur_4.ckpt)                             |
-| CLEVRER       | SAVi        | 0/7      | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/clevrer_savi_0.ckpt)                             |
-| CLEVRER       | SAVi        | 1/7      | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/clevrer_savi_1.ckpt)                             |
-| CLEVRER       | SAVi        | 2/7 (*)     | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/clevrer_savi_2.ckpt)                             |
-| CLEVRER       | SAVi        | 3/7      | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/clevrer_savi_3.ckpt)                             |
-| CLEVRER       | SAVi        | 4/7      | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/clevrer_savi_4.ckpt)                             |
-| PUSHT       | VideoSAUR   | 0/4      | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/pusht_videosaur_0.ckpt)                             |
-| PUSHT       | VideoSAUR   | 1/4  (*)    | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/pusht_videosaur_1.ckpt)                             |
-| PUSHT       | VideoSAUR   | 2/4      | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/pusht_videosaur_2.ckpt)                             |   
+| CLEVRER       | VideoSAUR   | 0/7       | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/clevrer_videosaur_0_epoch_30_object.ckpt)                             |
+| CLEVRER       | VideoSAUR   | 1/7       | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/clevrer_videosaur_1_epoch_30_object.ckpt)                             |
+| CLEVRER       | VideoSAUR   | 2/7      | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/clevrer_videosaur_2_epoch_30_object.ckpt)                             |
+| CLEVRER       | VideoSAUR   | 3/7      | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/clevrer_videosaur_3_epoch_30_object.ckpt)                             |
+| CLEVRER       | VideoSAUR   | 4/7 (*)     | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/clevrer_videosaur_4_epoch_30_object.ckpt)                             |
+| CLEVRER       | SAVi        | 0/7      | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/clevrer_savi_0_epoch_30_object.ckpt)                             |
+| CLEVRER       | SAVi        | 1/7      | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/clevrer_savi_1_epoch_30_object.ckpt)                             |
+| CLEVRER       | SAVi        | 2/7 (*)     | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/clevrer_savi_2_epoch_30_object.ckpt)                             |
+| CLEVRER       | SAVi        | 3/7      | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/clevrer_savi_3_epoch_30_object.ckpt)                             |
+| CLEVRER       | SAVi        | 4/7      | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/clevrer_savi_4_epoch_30_object.ckpt)                             |
+| PUSHT       | VideoSAUR   | 0/4      | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/pusht_videosaur_0_epoch_30_object.ckpt)                             |
+| PUSHT       | VideoSAUR   | 1/4  (*)    | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/pusht_videosaur_1_epoch_30_object.ckpt)                             |
+| PUSHT       | VideoSAUR   | 2/4      | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/pusht_videosaur_2_epoch_30_object.ckpt)                             |   
 
 ## Evaluation
 ### Evaluate Control on Push-T
