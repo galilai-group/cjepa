@@ -538,7 +538,19 @@ def create_attention_overlay_frame(
             color = np.array([r, g, 0.0], dtype=np.float32)
             overlay[region] = frame[region] * (1 - alpha) + color * alpha
 
-    return np.clip(overlay, 0, 255).astype(np.uint8)
+    overlay = np.clip(overlay, 0, 255).astype(np.uint8)
+    
+    # Add black borders around each slot region
+    for s in range(S):
+        region = slot_masks[s].astype(np.uint8)  # (H, W)
+        if not region.any():
+            continue
+        
+        # Find contours and draw black borders
+        contours, _ = cv2.findContours(region, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        cv2.drawContours(overlay, contours, -1, (0, 0, 0), thickness=2)
+    
+    return overlay
 
 
 def save_attention_videos(
@@ -662,13 +674,13 @@ def create_slot_reference_image(
 
 def main():
     parser = argparse.ArgumentParser(description="Attention Probing for Causal JEPA")
-    parser.add_argument("--video_path", type=str, default='/cs/data/people/hnam16/data/clevrer_for_savi/videos/train/video_08000-09000/video_08006.mp4',
-                        help="Path to the video file (e.g., video_08001.mp4)")
-    parser.add_argument("--mask_name", type=str, default="mask_slot2",
+    parser.add_argument("--video_path", type=str, default='/cs/data/people/hnam16/data/clevrer_for_savi/videos/train/video_07000-08000/video_07039.mp4',
+                        help="Path to the video file")
+    parser.add_argument("--mask_name", type=str, default="mask_slot5",
                         help=f"Mask name from mask_config. Available: {list_masks()}")
     parser.add_argument("--slot_pkl", type=str, default='/cs/data/people/hnam16/clevrer_videosaur_slots.pkl',
                         help="Path to the slot pickle file")
-    parser.add_argument("--annotation_path", type=str, default='/cs/data/people/hnam16/data/clevrer_for_savi/annotations/train/annotation_08000-09000/annotation_08006.json',
+    parser.add_argument("--annotation_path", type=str, default='/cs/data/people/hnam16/data/clevrer_for_savi/annotations/train/annotation_07000-08000/annotation_07039.json',
                         help="Path to the CLEVRER annotation JSON file")
     parser.add_argument("--videosaur_ckpt", type=str, default='/cs/data/people/hnam16/clevrer_videosaur_model.ckpt',
                         help="Path to the videosaur checkpoint (.ckpt)")
@@ -692,6 +704,8 @@ def main():
                         help="Number of timesteps in the probing window")
     args = parser.parse_args()
     configs = get_default_config()
+    model_name = args.cjepa_ckpt.split("/")[-1].split(".")[0]
+    args.output_dir = os.path.join(args.output_dir, model_name)
 
     device = args.device if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}")
