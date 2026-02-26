@@ -53,7 +53,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from probing.mask_config import get_mask, list_masks
-from probing.probing_config import get_default_config
+from probing.probing_config_videosaur import get_default_config
 from src.cjepa_predictor import MaskedSlotPredictor
 
 
@@ -332,15 +332,17 @@ def forward_with_attention(
     mask: torch.Tensor,
     num_slots: int,
     num_timesteps: int,
+    mask_name: str = "",
     layer_idx: int = -1,
-) -> dict[str, np.ndarray]:
+) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
     """
     Forward *x_flat* through the predictor's transformer and extract
     attention for every **masked** token.
 
     Returns
     -------
-    attn_dict : {f"token{s}_{t}": np.ndarray (T, S)} — normalized attention
+    raw_dict  : {f"token{s}_{t}": np.ndarray (T, S)} — raw attention.
+    norm_dict : {f"token{s}_{t}": np.ndarray (T, S)} — normalized attention
                 for the masked token at slot *s*, timestep *t*.
     """
     out_flat, attn_list = predictor.transformer(x_flat, return_attention=True)
@@ -356,26 +358,48 @@ def forward_with_attention(
     )
 
     # mask: (S, T) — True=visible, False=masked
+    # visible_mask_ts: (T, S) — True where token is visible (unmasked)
+    visible_mask_ts = mask.T.cpu().numpy()  # (T, S)
+
+    # For mask_slot0 .. mask_slot6, also exclude ALL tokens of the masked
+    # slot (including the visible anchor at t=0) during normalization.
+    import re
+    slot_mask_match = re.match(r"^mask_slot([0-6])$", mask_name)
+    exclude_slot_idx: int | None = None
+    if slot_mask_match:
+        exclude_slot_idx = int(slot_mask_match.group(1))
+
+    # Build normalization mask: tokens used for min-max statistics
+    norm_mask_ts = visible_mask_ts.copy()  # (T, S)
+    if exclude_slot_idx is not None:
+        norm_mask_ts[:, exclude_slot_idx] = False
+
     # Iterate over masked positions
-    attn_dict = {}
+    raw_dict = {}
+    norm_dict = {}
     for s in range(num_slots):
         for t in range(num_timesteps):
             if not mask[s, t]:  # position is masked
-                # Extract what this token attends to: (1, T, S)
+                # Extract what this token attends to: (T, S)
                 raw = attn_5d[0, t, s, :, :]  # (T, S)
                 raw_np = raw.cpu().numpy()
+                raw_dict[f"token{s}_{t}"] = raw_np.copy()
 
-                # Min-max normalize: map to [0, 1], NaN -> -1
-                has_nan = np.isnan(raw_np).any()
-                if has_nan or raw_np.max() == raw_np.min():
+                # Min-max normalize using tokens in norm_mask_ts
+                norm_vals = raw_np[norm_mask_ts]
+                has_nan = np.isnan(norm_vals).any()
+                if has_nan or len(norm_vals) == 0 or norm_vals.max() == norm_vals.min():
                     norm = np.full_like(raw_np, -1.0)
                 else:
-                    rmin, rmax = raw_np.min(), raw_np.max()
+                    rmin, rmax = norm_vals.min(), norm_vals.max()
                     norm = (raw_np - rmin) / (rmax - rmin)
 
-                attn_dict[f"token{s}_{t}"] = norm
+                # Set masked token positions to 0.5 (will be gray anyway)
+                norm[~visible_mask_ts] = 0.5
 
-    return attn_dict
+                norm_dict[f"token{s}_{t}"] = norm
+
+    return raw_dict, norm_dict
 
 
 # ---------------------------------------------------------------------------
@@ -383,29 +407,34 @@ def forward_with_attention(
 # ---------------------------------------------------------------------------
 
 def save_attention_csv(
-    attn_dict: dict[str, np.ndarray],
+    raw_dict: dict[str, np.ndarray],
+    norm_dict: dict[str, np.ndarray],
     video_name: str,
     mask_name: str,
     collision_frame: int,
     timestep: int,
     output_dir: str,
 ):
-    """Save one CSV per masked token.
+    """Save one CSV per masked token for both raw and normalized attention.
 
-    Directory: {output_dir}/{video_name}/{mask_name}/{collision_frame}/csv/
+    Directory: {output_dir}/{video_name}/{mask_name}/{collision_frame}/csv/raw/
+               {output_dir}/{video_name}/{mask_name}/{collision_frame}/csv/normalized/
     """
-    csv_dir = os.path.join(output_dir, video_name, mask_name, str(collision_frame), "csv")
-    os.makedirs(csv_dir, exist_ok=True)
-    for key, attn_map in attn_dict.items():
-        fname = f"{video_name}_{mask_name}_f{collision_frame}_at{timestep}_{key}.csv"
-        path = os.path.join(csv_dir, fname)
-        with open(path, "w", newline="") as f:
-            writer = csv.writer(f)
-            T, S = attn_map.shape
-            writer.writerow([f"slot{s}" for s in range(S)])
-            for t_row in range(T):
-                writer.writerow([f"{v:.6f}" for v in attn_map[t_row]])
-        print(f"  Saved CSV: {path}")
+    base_csv_dir = os.path.join(output_dir, video_name, mask_name, str(collision_frame), "csv")
+
+    for subdir, attn_dict in [("raw", raw_dict), ("normalized", norm_dict)]:
+        csv_dir = os.path.join(base_csv_dir, subdir)
+        os.makedirs(csv_dir, exist_ok=True)
+        for key, attn_map in attn_dict.items():
+            fname = f"{video_name}_{mask_name}_f{collision_frame}_at{timestep}_{key}.csv"
+            path = os.path.join(csv_dir, fname)
+            with open(path, "w", newline="") as f:
+                writer = csv.writer(f)
+                T, S = attn_map.shape
+                writer.writerow([f"slot{s}" for s in range(S)])
+                for t_row in range(T):
+                    writer.writerow([f"{v:.6f}" for v in attn_map[t_row]])
+            print(f"  Saved CSV: {path}")
 
 
 # ---------------------------------------------------------------------------
@@ -668,6 +697,100 @@ def create_slot_reference_image(
     print(f"  Saved slot reference: {output_path}")
 
 
+def save_resized_rgb_video(
+    all_video_frames: torch.Tensor,
+    output_path: str,
+    vis_size: int = 224,
+    fps: int = 25,
+):
+    """
+    Save the original video resized to (vis_size, vis_size) as an MP4.
+
+    Parameters
+    ----------
+    all_video_frames : (T, C, H, W) float32 in [0, 1]
+    """
+    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+    with imageio.get_writer(output_path, fps=fps) as writer:
+        for t in range(all_video_frames.shape[0]):
+            frame = all_video_frames[t].permute(1, 2, 0).cpu().numpy()  # (H,W,3)
+            frame = (frame * 255).astype(np.uint8)
+            frame = cv2.resize(frame, (vis_size, vis_size))
+            writer.append_data(frame)
+    print(f"  Saved resized RGB video: {output_path}")
+
+
+def save_slot_colored_video(
+    videosaur_model,
+    all_video_frames: torch.Tensor,
+    config,
+    output_path: str,
+    num_slots: int = 7,
+    vis_size: int = 224,
+    fps: int = 25,
+    alpha: float = 0.5,
+    device: str = "cuda",
+):
+    """
+    Save a video with distinct-colored slot overlays + black borders.
+    Each slot gets a unique colour from a perceptual colour map.
+
+    Parameters
+    ----------
+    all_video_frames : (T, C, H, W) float32 in [0, 1]
+    """
+    from src.third_party.videosaur.videosaur.visualizations import color_map
+    import torchvision.transforms as tvt
+
+    cmap = color_map(num_slots)  # list of (R, G, B) tuples
+
+    # Process in chunks to avoid OOM
+    T = all_video_frames.shape[0]
+    chunk_size = 32
+    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+
+    with imageio.get_writer(output_path, fps=fps) as writer:
+        for start in range(0, T, chunk_size):
+            end = min(start + chunk_size, T)
+            chunk = all_video_frames[start:end]  # (C_len, C, H, W)
+
+            hard_masks = get_videosaur_masks_for_frames(
+                videosaur_model, chunk, config, device, vis_size=vis_size
+            )  # (C_len, S, vis_size, vis_size)
+
+            for i in range(chunk.shape[0]):
+                # Resize RGB frame
+                rgb = chunk[i].permute(1, 2, 0).cpu().numpy()  # (H,W,3)
+                rgb = cv2.resize(rgb, (vis_size, vis_size))
+                rgb = (rgb * 255).astype(np.float32)
+
+                overlay = rgb.copy()
+                masks_i = hard_masks[i].numpy()  # (S, H, W)
+
+                for s in range(num_slots):
+                    region = masks_i[s].astype(bool)
+                    if not region.any():
+                        continue
+                    color = np.array(cmap[s], dtype=np.float32)  # (3,)
+                    overlay[region] = rgb[region] * (1 - alpha) + color * alpha
+
+                overlay = np.clip(overlay, 0, 255).astype(np.uint8)
+
+                # Black borders around each slot
+                for s in range(num_slots):
+                    region = masks_i[s].astype(np.uint8)
+                    if not region.any():
+                        continue
+                    contours, _ = cv2.findContours(
+                        region, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+                    )
+                    cv2.drawContours(overlay, contours, -1, (0, 0, 0), thickness=2)
+
+                writer.append_data(overlay)
+
+    print(f"  Saved slot-colored video: {output_path}")
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -691,7 +814,7 @@ def main():
     parser.add_argument("--videosaur_config", type=str, default='src/third_party/videosaur/configs/videosaur/clevrer_dinov2_hf.yml',
                         help="Path to the videosaur model config YAML. "
                              "Default: src/third_party/videosaur/configs/videosaur/clevrer_dinov2_hf.yml")
-    parser.add_argument("--output_dir", type=str, default="probing/outputs",
+    parser.add_argument("--output_dir", type=str, default="probing/outputs_videosaur",
                         help="Output directory for CSVs and images")
     parser.add_argument("--device", type=str, default="cuda",
                         help="Device (cuda or cpu)")
@@ -760,7 +883,7 @@ def main():
     print(f"    Predictor loaded. mask_token shape: {predictor.mask_token.shape}")
     print(f"    time_pos_embed shape: {predictor.time_pos_embed.shape}")
 
-    # --- 7. Create slot reference image ---
+    # --- 7. Create slot reference image + RGB video + slot-colored video ---
     print(f"\n[7] Creating slot reference image ...")
     # Use the first collision frame as reference
     ref_frame_idx = collision_frames[0]
@@ -768,9 +891,21 @@ def main():
         ref_frame = all_video_frames[ref_frame_idx]  # (C, H, W)
     else:
         ref_frame = all_video_frames[0]
-    ref_path = os.path.join(args.output_dir, video_name, f"{video_name}_slot_reference.jpeg")
+    ref_dir = os.path.join(args.output_dir, video_name)
+    ref_path = os.path.join(ref_dir, f"{video_name}_slot_reference.jpeg")
     create_slot_reference_image(
         videosaur_model, ref_frame, vs_config, ref_path,
+        num_slots=args.num_slots, device=device,
+    )
+
+    print(f"\n[7b] Saving resized RGB video ...")
+    rgb_video_path = os.path.join(ref_dir, f"{video_name}_resized_rgb.mp4")
+    save_resized_rgb_video(all_video_frames, rgb_video_path)
+
+    print(f"\n[7c] Saving slot-colored overlay video ...")
+    slot_video_path = os.path.join(ref_dir, f"{video_name}_slot_colored.mp4")
+    save_slot_colored_video(
+        videosaur_model, all_video_frames, vs_config, slot_video_path,
         num_slots=args.num_slots, device=device,
     )
 
@@ -795,18 +930,19 @@ def main():
         print(f"  Input shape (flat): {x_flat.shape}")
 
         # 8c. Forward + attention
-        attn_dict = forward_with_attention(
+        raw_dict, norm_dict = forward_with_attention(
             x_flat, predictor, mask,
             num_slots=args.num_slots,
             num_timesteps=args.window_size,
+            mask_name=args.mask_name,
             layer_idx=args.layer_idx,
         )
-        print(f"  Extracted attention for {len(attn_dict)} masked tokens")
+        print(f"  Extracted attention for {len(norm_dict)} masked tokens")
 
         # 8d. Save CSVs
         print(f"\n  Saving CSVs ...")
         save_attention_csv(
-            attn_dict, video_name, args.mask_name,
+            raw_dict, norm_dict, video_name, args.mask_name,
             col_frame, args.timestep, args.output_dir,
         )
 
@@ -832,7 +968,7 @@ def main():
         # 8f. Save attention overlay videos
         print(f"\n  Saving attention overlay videos ...")
         save_attention_videos(
-            attn_dict, rgb_frames, slot_masks_np, mask,
+            norm_dict, rgb_frames, slot_masks_np, mask,
             video_name, args.mask_name,
             col_frame, args.timestep,
             args.num_slots, args.window_size,

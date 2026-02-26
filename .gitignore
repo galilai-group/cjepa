@@ -9,6 +9,8 @@ outputs/*
 testfiles/*
 savi_visualize/*
 **valfile.json
+probing/**/*.jpeg
+*.gif
 
 # logs / vscode
 **.out
