@@ -11,6 +11,7 @@ savi_visualize/*
 **valfile.json
 probing/**/*.jpeg
 *.gif
+/*.sh
 
 # logs / vscode
 **.out
