@@ -19,7 +19,7 @@ this script:
        (c) A slot-index reference image.
 
 Usage:
-    python probing/main.py \
+    python probing/main_videosaur.py \
         --video_path /path/to/video_08001.mp4 \
         --mask_name mask_slot0 \
         --slot_pkl /path/to/slots.pkl \
