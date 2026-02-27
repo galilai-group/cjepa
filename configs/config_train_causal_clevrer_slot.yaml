@@ -15,8 +15,8 @@ wandb:
 
 
 dataset_name: clevrer
-embedding_dir: ?
-cache_dir: ?
+embedding_dir: null
+cache_dir: null
 
 
 rollout:
