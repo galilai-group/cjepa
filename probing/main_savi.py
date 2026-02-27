@@ -118,8 +118,6 @@ def load_slots_for_video(slot_pkl_path: str, video_filename: str) -> np.ndarray:
     with open(slot_pkl_path, "rb") as f:
         data = pickle.load(f)
 
-    # vid_id = str(int(video_filename.split(".")[0].split('_')[-1]))
-    # vid_id = vid_id + '_pixels.mp4'
     if video_filename in data['train']:
         return np.array(data['train'][video_filename])
     if video_filename in data['val']:
