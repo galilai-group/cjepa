@@ -134,7 +134,7 @@ register_mask("mask_slot6", [
 ])
 
 
-# --- future_only: first 8 timesteps visible, last 10 masked for all slots ---
+# --- future_only: first 6 timesteps visible, last 10 masked for all slots ---
 register_mask("future_only", [
     [1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     [1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
