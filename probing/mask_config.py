@@ -56,9 +56,9 @@ def list_masks() -> list[str]:
 # Pre-defined Masks
 # ============================================================================
 
-# --- mask_slot0: only slot 0 is masked across all timesteps ---
+# --- mask_slot0: slot 0 masked for timesteps 1–15 (t=0 visible) ---
 register_mask("mask_slot0", [
-    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],  # slot 0 masked
+    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],  # slot 0: t=0 visible, t=1–15 masked
     [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
     [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
     [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
