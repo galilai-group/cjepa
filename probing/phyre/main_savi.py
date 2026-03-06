@@ -148,7 +148,7 @@ def decode_slots_to_recon(
 # Attention table GIF
 # ---------------------------------------------------------------------------
 
-def save_attention_table_gifs(
+def save_attention_table_videos(
     raw_dict: dict[str, np.ndarray],
     norm_dict: dict[str, np.ndarray],
     recon_combined: np.ndarray,
@@ -172,7 +172,7 @@ def save_attention_table_gifs(
     show ``N: -``.
     """
     gif_dir = os.path.join(
-        output_dir, video_name, mask_name, str(start_frame), "gif"
+        output_dir, video_name, mask_name, str(start_frame), "mp4"
     )
     os.makedirs(gif_dir, exist_ok=True)
 
@@ -271,11 +271,11 @@ def save_attention_table_gifs(
 
         fname = (
             f"{video_name}_{mask_name}_f{start_frame}"
-            f"_{key}.gif"
+            f"_{key}.mp4"
         )
         path = os.path.join(gif_dir, fname)
-        imageio.mimsave(path, gif_frames, fps=fps, loop=0)
-        print(f"  Saved GIF: {path}")
+        imageio.mimsave(path, gif_frames, fps=fps)
+        print(f"  Saved MP4: {path}")
 
 
 
@@ -431,9 +431,9 @@ def main():
             savi_model, window_slots_np, device=device,
         )
 
-        # 5f. Save attention table GIFs
-        print(f"\n  Saving attention table GIFs ...")
-        save_attention_table_gifs(
+        # 5f. Save attention table videos
+        print(f"\n  Saving attention table videos ...")
+        save_attention_table_videos(
             raw_dict, norm_dict,
             recon_combined, slot_recons,
             mask, args.mask_name,
