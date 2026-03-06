@@ -338,6 +338,11 @@ def main():
     )
     parser.add_argument("--num_slots", type=int, default=8)
     parser.add_argument(
+        "--target_slot", type=int, default=None,
+        help="Only used with --mask_name no_mask. "
+             "Extract attention for this slot index (0-based) at every timestep.",
+    )
+    parser.add_argument(
         "--window_size", type=int, default=6,
         help="Number of timesteps in the probing window",
     )
@@ -413,6 +418,7 @@ def main():
             num_timesteps=args.window_size,
             mask_name=args.mask_name,
             layer_idx=args.layer_idx,
+            target_slot=args.target_slot if args.mask_name == "no_mask" else None,
         )
         print(f"  Extracted attention for {len(norm_dict)} masked tokens")
 

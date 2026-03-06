@@ -258,10 +258,14 @@ def forward_with_attention(
     num_timesteps: int,
     mask_name: str = "",
     layer_idx: int = -1,
+    target_slot: int | None = None,
 ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
     """
     Forward *x_flat* through the predictor's transformer and extract
     attention for every **masked** token.
+
+    If *target_slot* is given (used with ``no_mask``), extract attention
+    for that slot at every timestep regardless of the mask.
 
     Returns
     -------
@@ -297,12 +301,18 @@ def forward_with_attention(
     if exclude_slot_idx is not None:
         norm_mask_ts[:, exclude_slot_idx] = False
 
-    # Iterate over masked positions
+    # Determine which (s, t) positions to extract
     raw_dict = {}
     norm_dict = {}
+
+    def _should_extract(s: int, t: int) -> bool:
+        if target_slot is not None:
+            return s == target_slot
+        return not mask[s, t]  # original: masked positions only
+
     for s in range(num_slots):
         for t in range(num_timesteps):
-            if not mask[s, t]:  # position is masked
+            if _should_extract(s, t):
                 # Extract what this token attends to: (T, S)
                 raw = attn_5d[0, t, s, :, :]  # (T, S)
                 raw_np = raw.cpu().numpy()
