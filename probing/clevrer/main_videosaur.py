@@ -49,8 +49,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from probing.mask_config import get_mask, list_masks
-from probing.probing_config_videosaur import get_default_config
+from probing.clevrer.mask_config import get_mask, list_masks
+from probing.clevrer.probing_config_videosaur import get_default_config
 from probing.utils import (
     forward_with_attention,
     get_video_frames_for_indices,

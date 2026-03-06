@@ -99,10 +99,10 @@ def load_cjepa_predictor(ckpt_path: str, num_mask_slots: int, configs, device: s
     """
     spt_module = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     predictor = MaskedSlotPredictor(
-        num_slots=7,  # S: number of slots
-        slot_dim=128,
-        history_frames=6,  # T: history length
-        pred_frames=10,  # number of future frames to predict
+        num_slots=configs.savi.NUM_SLOTS,  # S: number of slots
+        slot_dim=configs.savi.SLOT_DIM,
+        history_frames=configs.savi.INPUT_FRAMES,  # T: history length
+        pred_frames=configs.savi.OUTPUT_FRAMES,  # number of future frames to predict
         num_masked_slots=num_mask_slots,  # M: number of slots to mask
         seed=0,  # for reproducible masking
         depth=configs.predictor.depth,
