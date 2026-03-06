@@ -55,8 +55,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from probing.mask_config import get_mask, list_masks
-from probing.probing_config_savi import get_default_config
+from probing.clevrer.mask_config import get_mask, list_masks
+from probing.clevrer.probing_config_savi import get_default_config
 from probing.utils import (
     forward_with_attention,
     get_video_frames_for_indices,
@@ -80,6 +80,15 @@ def load_slots_for_video(slot_pkl_path: str, video_filename: str) -> np.ndarray:
     """
     with open(slot_pkl_path, "rb") as f:
         data = pickle.load(f)
+
+    if video_filename in data['train']:
+        return np.array(data['train'][video_filename])
+    if video_filename in data['val']:
+        return np.array(data['val'][video_filename])
+    if video_filename in data['test']:
+        return np.array(data['test'][video_filename])
+
+    video_filename = str(int(video_filename.split('.')[0].split('_')[-1])) + '_pixels.mp4'
 
     if video_filename in data['train']:
         return np.array(data['train'][video_filename])
@@ -640,7 +649,10 @@ def main():
 
     # --- 6. Load C-JEPA predictor ---
     print(f"\n[6] Loading C-JEPA predictor from: {args.cjepa_ckpt} ...")
-    num_mask_slots = int(args.cjepa_ckpt.split("/")[-1].split("_")[2])
+    num_mask = args.cjepa_ckpt.split("/")[-1].split("_")[2]
+    if num_mask == "dl":
+        num_mask = args.cjepa_ckpt.split("/")[-1].split("_")[3]
+    num_mask_slots = int(num_mask)
     assert num_mask_slots in [0, 1, 2, 3, 4, 5, 6, 7], (
         f"Unexpected num_mask_slots parsed from checkpoint name: {num_mask_slots}"
     )

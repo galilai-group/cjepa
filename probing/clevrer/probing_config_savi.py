@@ -17,6 +17,7 @@ class SaviConfig:
     SLOT_DIM: int = 128
     RESOLUTION: tuple = (64, 64)  # SAVi native resolution
     INPUT_FRAMES: int = 6
+    OUTPUT_FRAMES: int = 10
 
 
 @dataclass
