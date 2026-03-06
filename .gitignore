@@ -5,6 +5,9 @@ eval_results/**
 temp/*
 **/*.ckpt
 **/*.mp4
+**/*.gif
+**/*.csv
+probing/**/*.jpeg
 outputs/*
 testfiles/*
 savi_visualize/*
@@ -14,7 +17,7 @@ probing/**/*.jpeg
 /*.sh
 
 # logs / vscode
-**.out
+**.ou
 **.err
 logs/*
 lightning_logs/
@@ -36,6 +39,7 @@ checkpoint/
 checkpoints/
 .idea/
 **/*.npy
+*.sh
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
