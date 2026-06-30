@@ -1,0 +1,15 @@
+name: clevrer
+train: clevrer_train.h5
+val: clevrer_val.h5
+cache_dir: null
+frameskip: 5
+image_size: 196
+num_object_slots: 7
+num_masked_slots: 2
+action_dim: 0
+proprio_dim: 0
+encoder:
+  dataset: clevrer
+  config: config/encoder/clevrer.yaml
+  checkpoint: null
+  repo_id: HazelNam/CJEPA

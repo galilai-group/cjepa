@@ -1,175 +1,187 @@
 # C-JEPA
-## Causal-JEPA: Learning World Models through Object-Level Latent Interventions
-by [Heejeong Nam](https://hazel-heejeong-nam.github.io/), [Quentin Le Lidec\*](https://quentinll.github.io/),[Lucas Maes\*](https://lucasmaes.bearblog.dev/), [Yann LeCun](http://yann.lecun.com/), [Randall Balestriero](https://randallbalestriero.github.io/).
 
-* Paper: [https://arxiv.org/abs/2602.11389](https://arxiv.org/abs/2602.11389)
-* Project Page: [https://hazel-heejeong-nam.github.io/cjepa/](https://hazel-heejeong-nam.github.io/cjepa/)
+Official implementation of **Causal-JEPA: Learning World Models through
+Object-Level Latent Interventions**.
 
-## Note 🚨🚨 (Jun 30, 2026)
-We will update the repo to make it more user-friendly with the latest stable-worldmodel and stable-pretraining shortly! 
+[Heejeong Nam](https://hazel-heejeong-nam.github.io/),
+[Quentin Le Lidec](https://quentinll.github.io/),
+[Lucas Maes](https://lucasmaes.bearblog.dev/),
+[Yann LeCun](https://yann.lecun.com/), and
+[Randall Balestriero](https://randallbalestriero.github.io/).
 
-![architecture](static/architecture.png)
+[Paper](https://arxiv.org/abs/2602.11389) ·
+[Project page](https://hazel-heejeong-nam.github.io/cjepa/) ·
+[Checkpoints](https://huggingface.co/HazelNam/CJEPA)
 
-## Summary
-World models require robust relational understanding to support prediction, reasoning, and control. While object-centric representations provide a useful abstraction, they are not sufficient to capture interaction-dependent dynamics. We therefore propose C-JEPA, a simple and flexible object-centric world model that extends masked joint embedding prediction from image patches to object-centric representations. 
-By applying object-level masking that requires an object's state to be inferred from other objects, C-JEPA induces latent interventions with counterfactual-like effects and prevents shortcut solutions, making interaction reasoning essential.
-Empirically, C-JEPA leads to consistent gains in visual question answering, with **an absolute improvement of about 20\% in counterfactual reasoning** compared to the same architecture without object-level masking. On agent control tasks, C-JEPA enables substantially more efficient planning by **using only 1\% of the total latent input features required by patch-based world models**, while achieving comparable performance. Finally, we provide a formal analysis demonstrating that object-level masking induces a causal inductive bias via latent interventions.
+![C-JEPA architecture](static/architecture.png)
 
+C-JEPA masks complete object trajectories in latent space, then predicts the
+masked history and future objects from the remaining context. This repository
+contains only that contribution and thin data/training/planning entry points.
+Environment management, HDF5 loading, training infrastructure, environments,
+and MPC come from released `stable-worldmodel` and `stable-pretraining`
+packages.
 
 ## Setup
-* Please refer to [ENV.md](docs/ENV.md) for environment setup.
-* C-JEPA is mainly built on top of [Stable-WorldModel](https://galilai-group.github.io/stable-worldmodel/) and [Stable-Pretraining](https://galilai-group.github.io/stable-pretraining/).
-* We adopt [original repo here](https://github.com/martius-lab/videosaur) for training VideoSAUR.
-* We adopt [original repo here](https://github.com/pairlab/SlotFormer) for SAVi and VQA model for CLEVRER (a.k.a. ALOE).
 
-## Dataset Preparation
-Please refer to [DATASET.md](docs/DATASET.md) for dataset preparation.
+Run one command:
 
-## Object-Centric Model / Representations for C-JEPA
-C-JEPA relies on object-centric encoders to extract object-centric representations. You can train the encoder by yourself, or download the model checkpoints from HuggingFace, or download the pre-extracted slot representations.
-
-![visualization](static/encoder_vis.png)
-
-### 1. Train Object-Centric Encoder
-* Train VideoSAUR on CLEVRER
-  ```
-  PYTHONPATH=. python src/third_party/videosaur/videosaur/train.py \
-      src/third_party/videosaur/configs/videosaur/clevrer_dinov2_hf.yml \
-      dataset.train_shards="/to/data/path/clevrer-train-{000000..0000XX}.tar" \
-      dataset.val_shards="/to/data/path/clevrer-val-{000000..0000XX}.tar" \
-      globals.BATCH_SIZE_PER_GPU=32 \
-  ```
-
-* Train SAVi on CLEVRER
-
-  * Refer to slotformer repo to setup data for train savi. Then you have to modify `data_root` and `gpus` in `src/third_party/slotformer/base_slots/configs/stosavi_clevrer_params.py` to point to the data directory. After that, you can run the code below to train SAVi on CLEVRER.
-
-  * Before running the code, replace whole `src/third_party/nerv/nerv/utils/misc.py` with `src/custom_codes/misc.py`. This is because the original code is based on `pytorch-lightning==0.8.*` while we are using `pytorch-lightning==2.6.*`.
-
-  ```
-  PYTHONPATH=. torchrun --nproc_per_node=3 src/aloe_train.py \
-    --task base_slots \
-    --params src/third_party/slotformer/base_slots/configs/stosavi_clevrer_params.py \
-    --exp_name clevrer_savi_reproduce \
-    --out_dir $OUTDIR \
-    --fp16 --ddp --cudnn
-  ```
-
-* Train VideoSAUR on PushT
-  ```
-  PYTHONPATH=. python src/third_party/videosaur/videosaur/train.py \
-      src/third_party/videosaur/configs/videosaur/pusht_dinov2_hf.yml \
-      dataset.train_shards="pusht_mixed/train/pusht-train-{000000..0000xx}.tar" \
-      dataset.val_shards="pusht_mixed/validation/pusht-val-{000000..00000x}.tar"
-  ```
-
-### 2. Model Checkpoints
-| Dataset      | Encoder    |  Hyperparams                      | Checkpoint Link                                                                                             |
-|--------------|------------------|---------------------------|------------------------------------------------------------------------------------------------------------|
-| CLEVRER       | VideoSAUR   | clevrer_dinov2_hf.yml        | [Checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/clevrer_videosaur_model.ckpt) |
-| CLEVRER       | SAVi   | stosavi_clevrer_params.py        | [Checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/clevrer_savi_model.pth) |
-| Push-T       | VideoSAUR   | pusht_dinov2_hf.yml        | [Checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/pusht_videosaur_model.ckpt) |
-
-### 3. Pre-extracted Slot Representations
-| Dataset      | Encoder    |  Config                      | Checkpoint Link                                                                                             |
-|--------------|------------------|---------------------------|------------------------------------------------------------------------------------------------------------|
-| CLEVRER       | VideoSAUR   | clevrer_dinov2_hf.yml        | [Checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/clevrer_videosaur_slots.pkl) |
-| CLEVRER       | SAVi   | stosavi_clevrer_params.py       | [Checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/clevrer_savi_slots.pkl) |
-| PUSHT       | VideoSAUR   | pusht_dinov2_hf.yml        | [Checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/pusht_videosaur_slots.pkl) |
-
-
-## Train / Download C-JEPA
-
-### Extract slot representations with the checkpoints
-
-Use this only if you want to extract slots by yourself. If you are using pre-extracted slots, you can skip this step and directly download the pre-extracted slots from HuggingFace.
-
-* CLEVRER SAVi slots 
-  *  Refer to slotformer repo to setup data for train savi. Then you have to modify `data_root` in `src/third_party/slotformer/base_slots/configs/stosavi_clevrer_params.py` to point to the data directory. After that, you can run the code below to train SAVi on CLEVRER.
-  ```
-  PYTHONPATH=. python src/third_party/slotformer/base_slots/extract_slots.py --params src/third_party/slotformer/base_slots/configs/stosavi_clevrer_params.py  --weight $WEIGHT  --save_path clevrer_savi_slots.pkl
-  ```
-* CLEVRER VideoSAUR 
-  ```
-  PYTHONPATH=. python src/third_party/slotformer/base_slots/extract_videosaur.py --weight $WEIGHT --data_root="~/.stable_worldmodel"   --save_path=$SAVE_DIR --dataset="clevrer"  --videosaur_config="src/third_party/videosaur/configs/videosaur/clevrer_dinov2_hf.yml" 
-  ```
-* PushT VideoSAUR Slots
-  ```
-  PYTHONPATH=. python src/third_party/slotformer/base_slots/extract_videosaur.py --weight $WEIGHT --data_root="~/.stable_worldmodel"   --save_path=$SAVE_DIR  --dataset="pusht_expert"  --videosaur_config="src/third_party/videosaur/configs/videosaur/pusht_dinov2_hf.yml"   --params="src/third_party/slotformer/aloe_pusht_params.py"
-  ```
-
-* Extracted pkl will look like:
-
-  ```
-  {
-      'train': {'0_pixels.mp4': slots, '1_pixels.mp4': slots, ...},  # slots: [T, N, 128] each
-      'val': {...},
-      'test': {...}
-  }
-  ```
-
-### 2. Run C-JEPA with pre-extracted slot representations
-
-Use scripts below. You can change the config file and the checkpoint path to run with different settings. For example, you can change `num_masked_slots` to control how many slots are masked.
-
-```sh
-sh script/clevrer/train_cjepa_from_slot.sh
-sh script/pusht/train_cjepa_from_slot.sh 
+```bash
+./setup.sh
+source .venv/bin/activate
 ```
 
-### 3. Download C-JEPA checkpoints
-* We release checkpoints for C-JEPA trained with different object-centric backbones and different number of masked slots. 
-* (*) means it performs best. (See the paper for details.)
+`setup.sh` creates `.venv`, installs the locked dependencies, and puts the
+inference-only VideoSAUR source under `.venv/src/videosaur`. Nothing is cloned
+into the visible repository. The tested releases are:
 
-| Dataset      |   OC-Backbone    |    Masked Slots / Total Slots    | Checkpoint Link                                                 |
-|--------------|------------------|---------------------------|------------------------------------------------------------------|
-| CLEVRER       | VideoSAUR   | 0/7       | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/clevrer_videosaur_0_epoch_30_object.ckpt)                             |
-| CLEVRER       | VideoSAUR   | 1/7       | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/clevrer_videosaur_1_epoch_30_object.ckpt)                             |
-| CLEVRER       | VideoSAUR   | 2/7      | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/clevrer_videosaur_2_epoch_30_object.ckpt)                             |
-| CLEVRER       | VideoSAUR   | 3/7      | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/clevrer_videosaur_3_epoch_30_object.ckpt)                             |
-| CLEVRER       | VideoSAUR   | 4/7 (*)     | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/clevrer_videosaur_4_epoch_30_object.ckpt)                             |
-| CLEVRER       | SAVi        | 0/7      | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/clevrer_savi_0_epoch_30_object.ckpt)                             |
-| CLEVRER       | SAVi        | 1/7      | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/clevrer_savi_1_epoch_30_object.ckpt)                             |
-| CLEVRER       | SAVi        | 2/7 (*)     | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/clevrer_savi_2_epoch_30_object.ckpt)                             |
-| CLEVRER       | SAVi        | 3/7      | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/clevrer_savi_3_epoch_30_object.ckpt)                             |
-| CLEVRER       | SAVi        | 4/7      | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/clevrer_savi_4_epoch_30_object.ckpt)                             |
-| PUSHT       | VideoSAUR   | 0/4      | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/pusht_videosaur_0_epoch_30_object.ckpt)                             |
-| PUSHT       | VideoSAUR   | 1/4  (*)    | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/pusht_videosaur_1_epoch_30_object.ckpt)                             |
-| PUSHT       | VideoSAUR   | 2/4      | [checkpoint](https://huggingface.co/HazelNam/CJEPA/blob/main/cjepa-ckpts/pusht_videosaur_2_epoch_30_object.ckpt)                             |   
+- `stable-worldmodel==0.1.1`
+- `stable-pretraining==0.1.7`
 
-## Evaluation
-### Evaluate Control on Push-T
-  ```
-  sh scripts/pusht/test_planning.sh
-  ```
+Datasets, downloaded encoder checkpoints, and model checkpoints live below
+`$STABLEWM_HOME` (default: `~/.stable_worldmodel`):
 
-### Evaluate Visual Reasoning on CLEVRER
+```bash
+export STABLEWM_HOME=/path/with/enough/storage  # optional
+```
 
-  * We will first rollout slots (from 128 frame to 160 frame) with C-JEPA checkpoint and pre-extracted slots.
+## Data
 
-  ```
-  # change CKPTPATH and SLOTPATH, `predictor_lr`, `num_masked_slots` before. SLOTPATH should be matched with the checkpoint that you are using (dataset, oc-encoder) and it should point to the pre-extracted slot representations. For example, if you are using `clevrer_savi_2.ckpt`, you should use `clevrer_savi_slots.pkl` and set `num_masked_slots` to 2.
-  # `predictor_lr` (default=5e-4), `num_masked_slots` should be matched with config is CKPT that you are using (they go to the output name)
-  # output name will be like : rollout_{SLOTPATH name}_{CKPT lr, CKPT masked slot}
-  sh scripts/clevrer/rollout_from_slot.sh
-  ```
-  * This will save output file under the same directory as the pre-extracted slot representations.
-  ```
-  # rollout_clevrer_slots_{configuration}.pkl :
-  {
-      'train': {'0_pixels.mp4': slots, '1_pixels.mp4': slots, ...},  # slots: [160, N, 128] each
-      'val': {...},
-      'test': {...}
-  }
-  ```
-  * Then you can run the code below to evaluate C-JEPA on CLEVRER visual question answering.
-  * Again, before running the code, replace whole `src/third_party/nerv/nerv/utils/misc.py` with `src/custom_codes/misc.py`. This is because the thrid-party code is based on `pytorch-lightning==0.8.*` while we are using `pytorch-lightning==2.6.*`.
-  * You should change params manually in `src/third_party/slotformer/clevrer_vqa/configs/aloe_clevrer_params-rollout.py`. For example, 
-    * `gpu` (it should exactly match the number of the visible devices)
-    * `lr`
-  * Then run script below to train and test aloe.
+All data uses the current stable-worldmodel HDF5 schema. Dataset names resolve
+under `$STABLEWM_HOME/datasets`.
 
-  ```
-  sh scripts/clevrer/train_aloe.sh
-  sh scripts/clevrer/test_aloe.sh
-  ```
+### CLEVRER: download and convert
+
+This single command downloads all official CLEVRER video archives and writes
+the train/validation/test H5 files:
+
+```bash
+python scripts/prepare_clevrer.py
+```
+
+The converter stores 196×196 RGB frames with Blosc/Zstd compression. Full
+CLEVRER is large. A range-download smoke conversion does not retain the 25 GB
+ZIP archives:
+
+```bash
+python scripts/prepare_clevrer.py \
+  --splits train val --max-videos 2 --download-mode range
+```
+
+### Raw pixels or pre-extracted slots
+
+Training auto-detects the representation:
+
+- an H5 `pixels` column uses the frozen VideoSAUR encoder;
+- an H5 `slots` column bypasses the image encoder completely.
+
+To pre-extract slots once:
+
+```bash
+python scripts/extract_slots.py \
+  "$STABLEWM_HOME/datasets/clevrer_train.h5" \
+  "$STABLEWM_HOME/datasets/clevrer_train_slots.h5" \
+  --dataset clevrer
+```
+
+This is native stable-worldmodel support for slot representations: `slots` is
+just another time-indexed H5 column, loaded by `swm.data.HDF5Dataset`. Action,
+proprioception, and metadata columns are preserved.
+
+## Object encoder checkpoints
+
+Object-centric encoder *training* is intentionally not part of this repo.
+When raw-pixel training or slot extraction first runs, the matching checkpoint
+is downloaded automatically to
+`$STABLEWM_HOME/artifacts/object-encoders/`:
+
+| Dataset | Encoder | Checkpoint |
+|---|---|---|
+| CLEVRER | VideoSAUR | [download](https://huggingface.co/HazelNam/CJEPA/blob/main/clevrer_videosaur_model.ckpt) |
+| PushT | VideoSAUR | [download](https://huggingface.co/HazelNam/CJEPA/blob/main/pusht_videosaur_model.ckpt) |
+
+Override the path when needed:
+
+```bash
+python train.py data.encoder.checkpoint=/path/to/model.ckpt
+```
+
+SAVi, SlotFormer, ALOE, and copied third-party training trees were removed.
+There are consequently no hidden Python constants or duplicate SlotFormer
+configs to edit. Released SAVi-era checkpoints are not supported by this
+refactor.
+
+## Training
+
+CLEVRER is the default:
+
+```bash
+python train.py
+```
+
+Use a pre-extracted-slot file with the same command and one override:
+
+```bash
+python train.py data.train=clevrer_train_slots.h5 \
+  data.val=clevrer_val_slots.h5
+```
+
+PushT uses one data preset:
+
+```bash
+python train.py data=pusht
+```
+
+Common smoke-test overrides are standard Hydra overrides:
+
+```bash
+python train.py trainer.max_epochs=1 trainer.limit_train_batches=2 \
+  trainer.limit_val_batches=1 loader.num_workers=0 loader.batch_size=2 \
+  wandb.enabled=false
+```
+
+Checkpoints are written to
+`$STABLEWM_HOME/checkpoints/cjepa/<dataset>/`. The `_object.ckpt` file is
+directly loadable by `stable_worldmodel.policy.AutoCostModel`.
+
+## Planning
+
+Set `policy` to a checkpoint path relative to
+`$STABLEWM_HOME/checkpoints`, without the `_object.ckpt` suffix:
+
+```bash
+python eval.py policy=cjepa/pusht
+```
+
+All planning settings are in `config/eval.yaml`; there are no values embedded
+in `eval.py`. For a quick check:
+
+```bash
+python eval.py policy=cjepa/pusht eval.num_eval=1 eval.eval_budget=2 \
+  eval.goal_offset=2 plan.horizon=1 plan.receding_horizon=1 \
+  solver.num_samples=2 solver.topk=1 solver.n_steps=1 eval.video=false
+```
+
+## Repository layout
+
+```text
+cjepa.py                  C-JEPA architecture and stable-worldmodel adapter
+encoder.py                checkpoint download and frozen VideoSAUR inference
+train.py                  shared pixel/slot trainer
+eval.py                   PushT planning
+config/                   one train config, two data presets, one eval config
+scripts/prepare_clevrer.py download-to-H5 CLEVRER converter
+scripts/extract_slots.py  H5 pixels-to-slots converter
+tests/                    fast model and H5 integration tests
+```
+
+## Architecture compatibility
+
+The learnable C-JEPA predictor is unchanged: the mask token, temporal
+positions, identity projector, full-attention transformer, feed-forward
+blocks, and output projection retain the original shapes and computation.
+The only model-facing cleanup is that action and proprioception are represented
+as explicit, unmaskable nodes through the already-used AP-node pathway. The
+surrounding adapter now accepts current H5 batches and the latest
+stable-worldmodel planning protocol. No legacy loader or checkpoint shim is
+included.

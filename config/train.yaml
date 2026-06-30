@@ -1,0 +1,56 @@
+defaults:
+  - data: clevrer
+  - _self_
+
+run_name: cjepa/${data.name}
+output_model_name: cjepa
+save_every_n_epochs: 1
+seed: 42
+
+model:
+  num_object_slots: ${data.num_object_slots}
+  slot_dim: 128
+  history_frames: 3
+  pred_frames: 1
+  num_masked_slots: ${data.num_masked_slots}
+  depth: 6
+  heads: 16
+  dim_head: 64
+  mlp_dim: 2048
+  dropout: 0.1
+  seed: ${seed}
+  action_dim: ${data.action_dim}
+  action_frameskip: ${data.frameskip}
+  proprio_dim: ${data.proprio_dim}
+
+loader:
+  batch_size: 64
+  num_workers: 8
+  persistent_workers: true
+  prefetch_factor: 2
+  pin_memory: true
+
+optimizer:
+  optimizer:
+    type: AdamW
+    lr: 5.0e-4
+    weight_decay: 0.0
+
+trainer:
+  max_epochs: 100
+  accelerator: gpu
+  devices: 1
+  precision: 16-mixed
+  gradient_clip_val: 1.0
+  log_every_n_steps: 10
+
+wandb:
+  enabled: false
+  config:
+    project: cjepa
+    name: ${data.name}
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null

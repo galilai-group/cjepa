@@ -1,0 +1,78 @@
+optimizer:
+  name: Adam
+  lr: 1.0e-4
+
+model:
+  load_weights: null
+  modules_to_load: null
+  input_type: video
+  visualize: false
+  target_encoder: null
+  target_encoder_input: null
+  mask_resizers: null
+  masks_to_visualize: null
+
+  losses:
+    reconstruction:
+      name: MSELoss
+      pred_dims: [0, 384]
+
+  initializer:
+    name: RandomInit
+    n_slots: 4
+    dim: 128
+
+  encoder:
+    backbone:
+      name: TimmExtractor
+      model: vit_small_patch14_dinov2.lvd142m
+      features: [vit_block12, vit_block_keys12]
+      frozen: true
+      pretrained: true
+      model_kwargs:
+        dynamic_img_size: true
+    output_transform:
+      name: networks.two_layer_mlp
+      inp_dim: 384
+      outp_dim: 128
+      hidden_dim: 768
+      layer_norm: true
+
+  grouper:
+    name: SlotAttention
+    inp_dim: 128
+    slot_dim: 128
+    n_iters: 2
+    use_mlp: false
+
+  latent_processor:
+    first_step_corrector_args:
+      n_iters: 3
+
+  predictor:
+    name: networks.TransformerEncoder
+    dim: 128
+    n_blocks: 1
+    n_heads: 4
+
+  decoder:
+    name: SlotMixerDecoder
+    inp_dim: 128
+    embed_dim: 128
+    outp_dim: 580
+    n_patches: 196
+    allocator:
+      name: TransformerEncoder
+      dim: 128
+      memory_dim: 128
+      n_blocks: 3
+      n_heads: 4
+    renderer:
+      name: MLP
+      inp_dim: 128
+      outp_dim: 1024
+      hidden_dims: [1024, 1024]
+      final_activation: true
+    renderer_dim: 1024
+    use_layer_norms: true
+    pos_embed_mode: add

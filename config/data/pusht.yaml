@@ -1,0 +1,15 @@
+name: pusht
+train: pusht_expert_train.h5
+val: pusht_expert_val.h5
+cache_dir: null
+frameskip: 5
+image_size: 196
+num_object_slots: 4
+num_masked_slots: 1
+action_dim: 2
+proprio_dim: 4
+encoder:
+  dataset: pusht
+  config: config/encoder/pusht.yaml
+  checkpoint: null
+  repo_id: HazelNam/CJEPA
