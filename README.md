@@ -5,6 +5,9 @@ by [Heejeong Nam](https://hazel-heejeong-nam.github.io/), [Quentin Le Lidec\*](h
 * Paper: [https://arxiv.org/abs/2602.11389](https://arxiv.org/abs/2602.11389)
 * Project Page: [https://hazel-heejeong-nam.github.io/cjepa/](https://hazel-heejeong-nam.github.io/cjepa/)
 
+## Note 🚨🚨 (Jun 30, 2026)
+We will update the repo to make it more user-friendly with the latest stable-worldmodel and stable-pretraining shortly! 
+
 ![architecture](static/architecture.png)
 
 ## Summary
