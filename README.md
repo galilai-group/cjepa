@@ -13,30 +13,26 @@ Object-Level Latent Interventions**.
 [Project page](https://hazel-heejeong-nam.github.io/cjepa/) ·
 [Checkpoints](https://huggingface.co/HazelNam/CJEPA)
 
-![C-JEPA architecture](static/architecture.png)
+<!-- ![C-JEPA architecture](static/architecture.png) -->
 
 C-JEPA masks complete object trajectories in latent space, then predicts the
 masked history and future objects from the remaining context. This repository
-contains only that contribution and thin data/training/planning entry points.
-Environment management, HDF5 loading, training infrastructure, environments,
-and MPC come from released `stable-worldmodel` and `stable-pretraining`
-packages.
+contains that contribution, thin data/training/planning entry points, and the
+downstream CLEVRER ALOE evaluation. Environment management, HDF5 loading,
+training infrastructure, environments, and MPC come from released
+`stable-worldmodel` and `stable-pretraining` packages.
 
 ## Setup
 
-Run one command:
+Run:
 
 ```bash
 ./setup.sh
 source .venv/bin/activate
 ```
 
-`setup.sh` creates `.venv`, installs the locked dependencies, and puts the
-inference-only VideoSAUR source under `.venv/src/videosaur`. Nothing is cloned
-into the visible repository. The tested releases are:
-
-- `stable-worldmodel==0.1.1`
-- `stable-pretraining==0.1.7`
+`setup.sh` creates the locked `.venv` and installs inference-only VideoSAUR
+inside it; no third-party training tree is added to the visible repository.
 
 Datasets, downloaded encoder checkpoints, and model checkpoints live below
 `$STABLEWM_HOME` (default: `~/.stable_worldmodel`):
@@ -50,6 +46,9 @@ export STABLEWM_HOME=/path/with/enough/storage  # optional
 All data uses the current stable-worldmodel HDF5 schema. Dataset names resolve
 under `$STABLEWM_HOME/datasets`.
 
+### Push-T
+* Follow [https://github.com/lucas-maes/le-wm#data](https://github.com/lucas-maes/le-wm#data) to download the Push-T dataset.
+
 ### CLEVRER: download and convert
 
 This single command downloads all official CLEVRER video archives and writes
@@ -58,24 +57,33 @@ the train/validation/test H5 files:
 ```bash
 python scripts/prepare_clevrer.py
 ```
+Note that the CLEVRER dataset is large (≈ 20 GB) and the conversion takes time.
 
-The converter stores 196×196 RGB frames with Blosc/Zstd compression. Full
-CLEVRER is large. A range-download smoke conversion does not retain the 25 GB
-ZIP archives:
+## Object Encoder Checkpoints
+
+Object-centric encoder *training* is intentionally not part of this repo.
+When raw-pixel training or slot extraction first runs, the matching checkpoint
+is downloaded automatically to
+`$STABLEWM_HOME/artifacts/object-encoders/`:
+
+We currently support VideoSAUR checkpoints only.
+
+| Dataset | Encoder checkpoint |
+|---|---|
+| CLEVRER | [VideoSAUR](https://huggingface.co/HazelNam/CJEPA/blob/main/clevrer_videosaur_model.ckpt) |
+| PushT | [VideoSAUR](https://huggingface.co/HazelNam/CJEPA/blob/main/pusht_videosaur_model.ckpt) |
+
+Override the path when needed:
 
 ```bash
-python scripts/prepare_clevrer.py \
-  --splits train val --max-videos 2 --download-mode range
+python train.py data.encoder.checkpoint=/path/to/model.ckpt
 ```
 
-### Raw pixels or pre-extracted slots
 
-Training auto-detects the representation:
+## Speed-Up Training
 
-- an H5 `pixels` column uses the frozen VideoSAUR encoder;
-- an H5 `slots` column bypasses the image encoder completely.
-
-To pre-extract slots once:
+Pre-extract slots once to speed up training. This uses native
+stable-worldmodel H5 slot representations:
 
 ```bash
 python scripts/extract_slots.py \
@@ -84,39 +92,22 @@ python scripts/extract_slots.py \
   --dataset clevrer
 ```
 
-This is native stable-worldmodel support for slot representations: `slots` is
-just another time-indexed H5 column, loaded by `swm.data.HDF5Dataset`. Action,
-proprioception, and metadata columns are preserved.
-
-## Object encoder checkpoints
-
-Object-centric encoder *training* is intentionally not part of this repo.
-When raw-pixel training or slot extraction first runs, the matching checkpoint
-is downloaded automatically to
-`$STABLEWM_HOME/artifacts/object-encoders/`:
-
-| Dataset | Encoder | Checkpoint |
-|---|---|---|
-| CLEVRER | VideoSAUR | [download](https://huggingface.co/HazelNam/CJEPA/blob/main/clevrer_videosaur_model.ckpt) |
-| PushT | VideoSAUR | [download](https://huggingface.co/HazelNam/CJEPA/blob/main/pusht_videosaur_model.ckpt) |
-
-Override the path when needed:
-
 ```bash
-python train.py data.encoder.checkpoint=/path/to/model.ckpt
+python scripts/extract_slots.py \
+  "$STABLEWM_HOME/datasets/pusht_expert_train.h5" \
+  "$STABLEWM_HOME/datasets/pusht_expert_train_slots.h5" \
+  --dataset pusht
 ```
 
-SAVi, SlotFormer, ALOE, and copied third-party training trees were removed.
-There are consequently no hidden Python constants or duplicate SlotFormer
-configs to edit. Released SAVi-era checkpoints are not supported by this
-refactor.
+
+
 
 ## Training
 
-CLEVRER is the default:
+CLEVRER :
 
 ```bash
-python train.py
+python train.py data=clevrer
 ```
 
 Use a pre-extracted-slot file with the same command and one override:
@@ -126,18 +117,15 @@ python train.py data.train=clevrer_train_slots.h5 \
   data.val=clevrer_val_slots.h5
 ```
 
-PushT uses one data preset:
+PushT:
 
 ```bash
 python train.py data=pusht
 ```
-
-Common smoke-test overrides are standard Hydra overrides:
+or for pre-extracted slots:
 
 ```bash
-python train.py trainer.max_epochs=1 trainer.limit_train_batches=2 \
-  trainer.limit_val_batches=1 loader.num_workers=0 loader.batch_size=2 \
-  wandb.enabled=false
+python train.py data.train=pusht_expert_train_slots.h5 
 ```
 
 Checkpoints are written to
@@ -162,6 +150,51 @@ python eval.py policy=cjepa/pusht eval.num_eval=1 eval.eval_budget=2 \
   solver.num_samples=2 solver.topk=1 solver.n_steps=1 eval.video=false
 ```
 
+## CLEVRER visual reasoning (ALOE)
+
+The downstream ALOE pipeline lives entirely in `aloe/` and uses one config,
+`aloe/config.yaml`. It reads the same H5 slot files as C-JEPA; the old
+SlotFormer/NeRV code and pickle conversion are not needed. CLEVRER question
+annotations are downloaded automatically on the first train/eval run. Its
+model and evaluation behavior were recovered from the previous repository
+snapshot and the original [SlotFormer](https://github.com/pairlab/SlotFormer)
+ALOE implementation.
+
+First extract VideoSAUR slots for all three CLEVRER splits:
+
+```bash
+for split in train val test; do
+  python scripts/extract_slots.py \
+    "$STABLEWM_HOME/datasets/clevrer_${split}.h5" \
+    "$STABLEWM_HOME/datasets/clevrer_${split}_slots.h5" \
+    --dataset clevrer
+done
+```
+
+Then run the complete C-JEPA → ALOE path:
+
+```bash
+python -m aloe.rollout
+python -m aloe.train
+python -m aloe.eval
+```
+
+By default, rollout loads
+`$STABLEWM_HOME/checkpoints/cjepa/clevrer/cjepa_object.ckpt`, extends every
+slot sequence from 128 to 160 frames, and writes
+`clevrer_{split}_slots_rollout.h5`. ALOE writes `best.ckpt` below
+`$STABLEWM_HOME/checkpoints/aloe/`, and evaluation writes validation
+predictions plus per-question-type accuracy.
+
+Use another C-JEPA checkpoint or create a CLEVRER test submission with one
+override:
+
+```bash
+python -m aloe.rollout rollout.checkpoint=/path/to/cjepa_object.ckpt
+python -m aloe.eval eval.split=test \
+  eval.output="$STABLEWM_HOME/results/aloe_test.json"
+```
+
 ## Repository layout
 
 ```text
@@ -172,16 +205,21 @@ eval.py                   PushT planning
 config/                   one train config, two data presets, one eval config
 scripts/prepare_clevrer.py download-to-H5 CLEVRER converter
 scripts/extract_slots.py  H5 pixels-to-slots converter
+aloe/                     C-JEPA rollout, ALOE train/eval, and one config
 tests/                    fast model and H5 integration tests
 ```
 
 ## Architecture compatibility
 
-The learnable C-JEPA predictor is unchanged: the mask token, temporal
-positions, identity projector, full-attention transformer, feed-forward
-blocks, and output projection retain the original shapes and computation.
-The only model-facing cleanup is that action and proprioception are represented
-as explicit, unmaskable nodes through the already-used AP-node pathway. The
-surrounding adapter now accepts current H5 batches and the latest
-stable-worldmodel planning protocol. No legacy loader or checkpoint shim is
-included.
+Restoring ALOE does not change the C-JEPA architecture. The ALOE dimensions,
+question/choice tokens, slot tokens, positional encoding, and 12-layer
+transformer setup match the previous pipeline; only the old NeRV transformer
+container is replaced by PyTorch's equivalent `TransformerEncoder`. No legacy
+ALOE checkpoint shim is included.
+
+# Misc
+
+The tested releases are:
+
+- `stable-worldmodel==0.1.1`
+- `stable-pretraining==0.1.7`

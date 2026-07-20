@@ -118,13 +118,15 @@ class ClevrerWriter:
             dtype=np.int64,
         )
 
-    def write(self, frames: np.ndarray):
+    def write(self, frames: np.ndarray, episode_id: int):
         episode = self.file["ep_len"].shape[0]
         offset = self.file["pixels"].shape[0]
         end = offset + len(frames)
         values = {
             "pixels": frames,
-            "episode_idx": np.full(len(frames), episode, dtype=np.int64),
+            # Keep CLEVRER's canonical scene id (0, 10000, 15000, ...).
+            # ALOE question annotations use this id to join questions to slots.
+            "episode_idx": np.full(len(frames), episode_id, dtype=np.int64),
             "step_idx": np.arange(len(frames), dtype=np.int64),
         }
         for name, data in values.items():
@@ -177,7 +179,8 @@ def convert_split(args, split: str):
             for name in tqdm(names, desc=f"Converting {split}"):
                 archive.extract(name, path=temporary)
                 video_path = temporary / name
-                writer.write(decode_video(video_path, args.size))
+                scene_id = int(video_path.stem.rsplit("_", 1)[-1])
+                writer.write(decode_video(video_path, args.size), scene_id)
                 video_path.unlink()
     finally:
         writer.close()

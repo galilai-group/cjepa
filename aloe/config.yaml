@@ -1,0 +1,75 @@
+root: ${oc.env:STABLEWM_HOME,${oc.env:HOME}/.stable_worldmodel}
+seed: 42
+
+data:
+  questions: ${root}/datasets/clevrer_questions
+  train: ${root}/datasets/clevrer_train_slots_rollout.h5
+  val: ${root}/datasets/clevrer_val_slots_rollout.h5
+  test: ${root}/datasets/clevrer_test_slots_rollout.h5
+  sample_frames: 25
+  observed_frames: 128
+  max_question_len: 20
+  max_choice_len: 12
+  shuffle_slots: false
+
+model:
+  num_slots: 7
+  slot_dim: 128
+  input_dim: 16
+  num_layers: 12
+  num_heads: 8
+  ffn_dim: 512
+  mlp_dim: 128
+  dropout: 0.0
+
+loader:
+  batch_size: 96
+  eval_batch_size: 192
+  num_workers: 8
+  pin_memory: true
+  persistent_workers: true
+
+train:
+  output: ${root}/checkpoints/aloe
+  max_epochs: 400
+  learning_rate: 1.0e-3
+  min_learning_rate: 1.0e-5
+  warmup_fraction: 0.1
+  weight_decay: 0.0
+  accelerator: gpu
+  devices: 1
+  precision: 16-mixed
+  check_val_every_n_epoch: 20
+  log_every_n_steps: 20
+  resume: true
+  limit_train_batches: 1.0
+  limit_val_batches: 1.0
+
+rollout:
+  checkpoint: ${root}/checkpoints/cjepa/clevrer/cjepa_object.ckpt
+  splits: [train, val, test]
+  inputs:
+    train: ${root}/datasets/clevrer_train_slots.h5
+    val: ${root}/datasets/clevrer_val_slots.h5
+    test: ${root}/datasets/clevrer_test_slots.h5
+  outputs:
+    train: ${data.train}
+    val: ${data.val}
+    test: ${data.test}
+  target_frames: 160
+  frameskip: 5
+  batch_size: 32
+  device: cuda
+  overwrite: false
+
+eval:
+  checkpoint: ${train.output}/best.ckpt
+  split: val
+  output: ${root}/results/aloe_val.json
+  device: cuda
+  limit_batches: null
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
