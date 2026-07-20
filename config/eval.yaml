@@ -1,7 +1,15 @@
-policy: cjepa/pusht
+policy: cjepa/pusht_m1
+download: false
 device: cuda
 seed: 42
 output_dir: outputs/pusht
+
+checkpoint:
+  repo_id: HazelNam/CJEPA
+  revision: main
+  backbone: videosaur
+  epoch: 30
+  filename: null
 
 world:
   env_name: swm/PushT-v1

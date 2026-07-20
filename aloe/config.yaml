@@ -46,7 +46,7 @@ train:
   limit_val_batches: 1.0
 
 rollout:
-  checkpoint: ${root}/checkpoints/cjepa/clevrer/cjepa_object.ckpt
+  checkpoint: ${root}/checkpoints/cjepa/clevrer_m2_object.ckpt
   splits: [train, val, test]
   inputs:
     train: ${root}/datasets/clevrer_train_slots.h5

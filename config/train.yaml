@@ -2,8 +2,8 @@ defaults:
   - data: clevrer
   - _self_
 
-run_name: cjepa/${data.name}
-output_model_name: cjepa
+run_name: cjepa
+output_model_name: ${data.name}_m${model.num_masked_slots}
 save_every_n_epochs: 1
 seed: 42
 

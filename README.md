@@ -33,6 +33,11 @@ source .venv/bin/activate
 
 `setup.sh` creates the locked `.venv` and installs inference-only VideoSAUR
 inside it; no third-party training tree is added to the visible repository.
+The activation path in this checkout is:
+
+```bash
+source /grid/klindt/home/nam/cjepa/.venv/bin/activate
+```
 
 Datasets, downloaded encoder checkpoints, and model checkpoints live below
 `$STABLEWM_HOME` (default: `~/.stable_worldmodel`):
@@ -129,8 +134,17 @@ python train.py data.train=pusht_expert_train_slots.h5
 ```
 
 Checkpoints are written to
-`$STABLEWM_HOME/checkpoints/cjepa/<dataset>/`. The `_object.ckpt` file is
-directly loadable by `stable_worldmodel.policy.AutoCostModel`.
+`$STABLEWM_HOME/checkpoints/cjepa/`. The filename always records the dataset
+and masked-slot count. For example, the default PushT run writes
+`pusht_m1_object.ckpt`, while this command writes `pusht_m2_object.ckpt`:
+
+```bash
+python train.py data=pusht model.num_masked_slots=2
+```
+
+The corresponding per-epoch weights and resolved config use the same
+`pusht_m2` prefix. The `_object.ckpt` file is directly loadable by
+`stable_worldmodel.policy.AutoCostModel`.
 
 ## Planning
 
@@ -138,17 +152,52 @@ Set `policy` to a checkpoint path relative to
 `$STABLEWM_HOME/checkpoints`, without the `_object.ckpt` suffix:
 
 ```bash
-python eval.py policy=cjepa/pusht
+python eval.py policy=cjepa/pusht_m1
 ```
+
+For a fresh setup, add `--download`. The masked-slot count in the policy name
+selects the matching released checkpoint:
+
+```bash
+python eval.py policy=cjepa/pusht_m2 --download
+```
+
+The current Hugging Face files still use legacy names such as
+`cjepa-ckpts/pusht_videosaur_2_epoch_30_object.ckpt`. On first use, `eval.py`
+downloads that file, renames it to
+`$STABLEWM_HOME/checkpoints/cjepa/pusht_m2_object.ckpt`, and upgrades it to the
+current model object when necessary. A previously converted checkpoint with
+the incompatible timm encoder is detected, downloaded again, and upgraded
+automatically. Compatible local checkpoints are reused.
+
+The upgraded checkpoint retains the released policy's HuggingFace DINOv2-small
+VideoSAUR `FrameEncoder`, recurrent slot processor, and initializer weights.
+Planning also retains its original rollout semantics: current-frame action
+injection, per-step Hungarian slot alignment, the post-action final prediction,
+goal slots initialized from current slots, and the sum of object-slot and goal
+proprioception costs. Encoded planning inputs are cached by environment ID and
+step index, preventing a later MPC replan from reusing stale slots when a
+tensor allocator recycles the same memory address.
+
+Evaluation starts use the legacy evaluator's row filtering and seeded sampling,
+including its exclusive `len(valid_starts) - 1` upper bound. With the same
+dataset ordering and seed, evaluation therefore starts from the same episodes
+and steps as the old repository.
 
 All planning settings are in `config/eval.yaml`; there are no values embedded
 in `eval.py`. For a quick check:
 
 ```bash
-python eval.py policy=cjepa/pusht eval.num_eval=1 eval.eval_budget=2 \
+python eval.py policy=cjepa/pusht_m2 --download \
+  eval.num_eval=1 eval.eval_budget=2 \
   eval.goal_offset=2 plan.horizon=1 plan.receding_horizon=1 \
   solver.num_samples=2 solver.topk=1 solver.n_steps=1 eval.video=false
 ```
+
+On Slurm, `sbatch temp.sh` runs the full `pusht_m2` evaluation. The script
+activates this repository's `.venv` itself, so it does not depend on the
+submission shell's active environment. Hydra overrides can be passed through,
+for example `sbatch temp.sh policy=cjepa/pusht_m1 --download`.
 
 ## CLEVRER visual reasoning (ALOE)
 
@@ -180,7 +229,7 @@ python -m aloe.eval
 ```
 
 By default, rollout loads
-`$STABLEWM_HOME/checkpoints/cjepa/clevrer/cjepa_object.ckpt`, extends every
+`$STABLEWM_HOME/checkpoints/cjepa/clevrer_m2_object.ckpt`, extends every
 slot sequence from 128 to 160 frames, and writes
 `clevrer_{split}_slots_rollout.h5`. ALOE writes `best.ckpt` below
 `$STABLEWM_HOME/checkpoints/aloe/`, and evaluation writes validation
@@ -199,6 +248,7 @@ python -m aloe.eval eval.split=test \
 
 ```text
 cjepa.py                  C-JEPA architecture and stable-worldmodel adapter
+checkpoint.py             released checkpoint download and compatibility upgrade
 encoder.py                checkpoint download and frozen VideoSAUR inference
 train.py                  shared pixel/slot trainer
 eval.py                   PushT planning
@@ -211,11 +261,22 @@ tests/                    fast model and H5 integration tests
 
 ## Architecture compatibility
 
-Restoring ALOE does not change the C-JEPA architecture. The ALOE dimensions,
-question/choice tokens, slot tokens, positional encoding, and 12-layer
-transformer setup match the previous pipeline; only the old NeRV transformer
-container is replaced by PyTorch's equivalent `TransformerEncoder`. No legacy
-ALOE checkpoint shim is included.
+The released planning checkpoints predate the compact `CJEPA` class in this
+repository. Their predictor tensors have the same names and shapes, but the
+outer world-model/VideoSAUR wrappers are different and the action/proprio
+convolutions were named `patch_embed` instead of `projection`. With
+`--download`, the loader checks the dataset, slot count, latent dimension,
+history/prediction lengths, masked-slot count, and every predictor tensor
+strictly. It then rebuilds the current wrapper, remaps the two embedder names,
+restores the checkpoint's original HuggingFace DINOv2 VideoSAUR FrameEncoder
+and slot-processing tensors strictly, and atomically replaces the renamed
+checkpoint. A mismatch fails with an explicit compatibility error instead of
+silently loading partial weights.
+
+This conversion is only for the released C-JEPA planning checkpoints. The ALOE
+dimensions, question/choice tokens, slot tokens, positional encoding, and
+12-layer transformer setup match the previous pipeline; no legacy ALOE
+checkpoint shim is included.
 
 # Misc
 

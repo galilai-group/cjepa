@@ -208,7 +208,11 @@ def run(cfg: DictConfig):
         cfg.run_name,
     )
     run_dir.mkdir(parents=True, exist_ok=True)
-    OmegaConf.save(cfg, run_dir / "config.yaml", resolve=True)
+    OmegaConf.save(
+        cfg,
+        run_dir / f"{cfg.output_model_name}_config.yaml",
+        resolve=True,
+    )
 
     logger = None
     if cfg.wandb.enabled:

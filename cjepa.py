@@ -40,11 +40,15 @@ class NonCausalTransformer(nn.Module):
     def forward(self, x, return_attention=False):
         weights = [] if return_attention else None
         for attention, feed_forward in self.layers:
-            attention_out, attention_weights = attention(
-                x, x, x, need_weights=return_attention
-            )
             if return_attention:
+                attention_out, attention_weights = attention(
+                    x, x, x, need_weights=True
+                )
                 weights.append(attention_weights)
+            else:
+                # Preserve the original checkpoint's execution path.  Its
+                # MultiheadAttention call used the default need_weights=True.
+                attention_out, _ = attention(x, x, x)
             x = x + attention_out
             x = x + feed_forward(x)
         output = self.norm(x)
@@ -273,9 +277,14 @@ class CJEPA(nn.Module):
             return None
         return self.num_object_slots + int(self.proprio_encoder is not None)
 
-    def encode_objects(self, batch):
+    @property
+    def proprio_node(self) -> int | None:
+        return self.num_object_slots if self.proprio_encoder is not None else None
+
+    def encode_objects(self, batch, initial_slots=None, return_last_slot=False):
         if "slots" in batch:
             slots = batch["slots"].float()
+            last_slot = slots[:, -1] if slots.ndim == 4 else slots
         elif "pixels" in batch:
             if self.object_encoder is None:
                 raise RuntimeError(
@@ -283,7 +292,15 @@ class CJEPA(nn.Module):
                     "configured. Run ./setup.sh and leave data.encoder enabled."
                 )
             with torch.no_grad():
-                slots = self.object_encoder(batch["pixels"].float())
+                result = self.object_encoder(
+                    batch["pixels"].float(),
+                    initial_slots=initial_slots,
+                    return_last_slot=return_last_slot,
+                )
+            if return_last_slot:
+                slots, last_slot = result
+            else:
+                slots = result
         else:
             raise KeyError("The dataset needs a 'pixels' or 'slots' column")
 
@@ -293,7 +310,7 @@ class CJEPA(nn.Module):
                 f"Expected slots shaped (..., {expected[0]}, {expected[1]}), "
                 f"got {tuple(slots.shape)}"
             )
-        return slots
+        return (slots, last_slot) if return_last_slot else slots
 
     def encode(self, batch):
         slots = self.encode_objects(batch)
@@ -328,28 +345,54 @@ class CJEPA(nn.Module):
         source = info.get("slots", info.get("pixels"))
         if source is None:
             raise KeyError("Planning requires 'pixels' or 'slots' in info")
+        identity = []
+        for name in ("id", "step_idx"):
+            value = info.get(name)
+            if torch.is_tensor(value):
+                # Candidate values are repeated.  Keep a value-based token so
+                # allocator reuse cannot turn the next MPC state into a false
+                # cache hit.  This mirrors the released model's id/step check.
+                value = value[:, 0].detach().cpu().contiguous()
+                identity.append((name, tuple(value.shape), value.numpy().tobytes()))
         key = (
-            source.data_ptr(),
-            tuple(source.shape),
-            source.device,
-            source.dtype,
+            tuple(identity)
+            if identity
+            else (
+                source.data_ptr(),
+                tuple(source.shape),
+                source.device,
+                source.dtype,
+            )
         )
         if key in self._planning_cache:
             return self._planning_cache[key]
 
         # Candidate-expanded info is identical along dimension 1. Encode once.
         batch = {"slots" if "slots" in info else "pixels": source[:, 0]}
-        object_history = self.encode_objects(batch)
+        object_history, previous_slots = self.encode_objects(
+            batch, return_last_slot=True
+        )
 
         goal_source = info.get("goal_slots", info.get("goal"))
         if goal_source is None:
             raise KeyError("Planning requires 'goal' or 'goal_slots' in info")
         goal_batch = {"slots" if "goal_slots" in info else "pixels": goal_source[:, 0]}
-        goal_objects = self.encode_objects(goal_batch)
+        # The released policy initializes goal slot attention from the current
+        # frame's final slots, preserving object identity across current/goal.
+        goal_objects = self.encode_objects(goal_batch, initial_slots=previous_slots)
         goal_objects = goal_objects[:, -1] if goal_objects.ndim == 4 else goal_objects
 
-        self._planning_cache = {key: (object_history, goal_objects)}
-        return object_history, goal_objects
+        goal_proprio = None
+        if self.proprio_encoder is not None and "goal_proprio" in info:
+            raw_goal_proprio = info["goal_proprio"][:, 0].float()
+            if raw_goal_proprio.ndim == 2:
+                raw_goal_proprio = raw_goal_proprio.unsqueeze(1)
+            goal_proprio = self.proprio_encoder(raw_goal_proprio)[:, -1]
+
+        self._planning_cache = {
+            key: (object_history, goal_objects, goal_proprio)
+        }
+        return object_history, goal_objects, goal_proprio
 
     def _compose_planning_history(self, objects, info, num_candidates):
         batch_size, time = objects.shape[:2]
@@ -382,39 +425,94 @@ class CJEPA(nn.Module):
         return torch.cat(nodes, dim=3)
 
     def rollout(self, info, action_candidates):
-        objects, _ = self._planning_inputs(info)
+        objects, _, _ = self._planning_inputs(info)
         batch_size, num_candidates = action_candidates.shape[:2]
         history = self._compose_planning_history(objects, info, num_candidates)
         history = rearrange(history, "b n t s d -> (b n) t s d")
-        if history.shape[1] < self.history_frames:
-            padding = history[:, :1].expand(
-                -1, self.history_frames - history.shape[1], -1, -1
-            )
-            history = torch.cat([padding, history], dim=1)
         flat_actions = rearrange(action_candidates, "b n t d -> (b n) t d")
+        observed_frames = history.shape[1]
+        if flat_actions.shape[1] < observed_frames:
+            raise ValueError(
+                "Planning horizon must cover every observed history frame: "
+                f"horizon={flat_actions.shape[1]}, observations={observed_frames}"
+            )
 
-        predictions = []
-        for step in range(flat_actions.shape[1]):
-            context = history[:, -self.history_frames :].clone()
+        # As in the original policy, action 0 belongs to the observed latent.
+        if self.action_encoder is not None:
+            initial_actions = self.action_encoder(
+                flat_actions[:, :observed_frames]
+            )
+            history[:, :, self.action_node] = initial_actions
+
+        remaining_actions = flat_actions[:, observed_frames:]
+        current_step = 0
+        while current_step < remaining_actions.shape[1]:
+            context = history[:, -self.history_frames :]
+            prediction = self.predict(context, inference=True)
+            prediction = self._reorder_prediction(prediction, history[:, -1])
+            steps = min(
+                prediction.shape[1], remaining_actions.shape[1] - current_step
+            )
+            prediction = prediction[:, :steps].clone()
             if self.action_encoder is not None:
-                action_node = self.action_encoder(flat_actions[:, step : step + 1])[
-                    :, 0
-                ]
-                context[:, -1, self.action_node] = action_node
-            prediction = self.predict(context, inference=True)[:, 0]
-            predictions.append(prediction[:, : self.num_object_slots])
-            history = torch.cat([history, prediction.unsqueeze(1)], dim=1)
+                action_nodes = self.action_encoder(
+                    remaining_actions[:, current_step : current_step + steps]
+                )
+                prediction[:, :, self.action_node] = action_nodes
+            history = torch.cat([history, prediction], dim=1)
+            current_step += steps
 
-        predicted_objects = torch.stack(predictions, dim=1)
+        # One final prediction represents the state reached after the last
+        # injected action.  Its action node is intentionally left predicted.
+        final_prediction = self.predict(
+            history[:, -self.history_frames :], inference=True
+        )[:, :1]
+        final_prediction = self._reorder_prediction(
+            final_prediction, history[:, -1]
+        )
+        history = torch.cat([history, final_prediction], dim=1)
         return rearrange(
-            predicted_objects,
+            history,
             "(b n) t s d -> b n t s d",
             b=batch_size,
             n=num_candidates,
         )
 
-    def criterion(self, predicted, goal):
-        pair_cost = (predicted.unsqueeze(-2) - goal.unsqueeze(-3)).square().mean(dim=-1)
+    def _reorder_prediction(self, prediction, reference):
+        """Hungarian-align predicted object slots and preserve AP nodes."""
+        objects = prediction[:, 0, : self.num_object_slots]
+        reference_objects = reference[:, : self.num_object_slots]
+        pair_cost = (
+            objects.unsqueeze(2) - reference_objects.unsqueeze(1)
+        ).square().sum(dim=-1)
+        reordered = prediction.clone()
+        for batch_index, matrix in enumerate(pair_cost):
+            rows, columns = linear_sum_assignment(
+                matrix.detach().float().cpu().numpy()
+            )
+            inverse = torch.empty(
+                self.num_object_slots,
+                dtype=torch.long,
+                device=prediction.device,
+            )
+            inverse[torch.as_tensor(columns, device=prediction.device)] = (
+                torch.as_tensor(rows, device=prediction.device)
+            )
+            reordered[batch_index, :, : self.num_object_slots] = prediction[
+                batch_index, :, inverse
+            ]
+        return reordered
+
+    def criterion(
+        self,
+        predicted_objects,
+        goal_objects,
+        predicted_proprio=None,
+        goal_proprio=None,
+    ):
+        pair_cost = (
+            predicted_objects.unsqueeze(-2) - goal_objects.unsqueeze(-3)
+        ).square().mean(dim=-1)
         costs = []
         for batch_costs in pair_cost:
             candidate_costs = []
@@ -424,16 +522,32 @@ class CJEPA(nn.Module):
                 )
                 candidate_costs.append(matrix[rows, cols].mean())
             costs.append(torch.stack(candidate_costs))
-        return torch.stack(costs)
+        total = torch.stack(costs)
+        if predicted_proprio is not None and goal_proprio is not None:
+            total = total + (predicted_proprio - goal_proprio).square().mean(dim=-1)
+        return total
 
     @torch.inference_mode()
     def get_cost(self, info, action_candidates):
         predictions = self.rollout(info, action_candidates)
-        _, goal = self._planning_inputs(info)
-        goal = goal.unsqueeze(1).expand(
-            predictions.shape[0], predictions.shape[1], *goal.shape[1:]
+        _, goal_objects, goal_proprio = self._planning_inputs(info)
+        goal_objects = goal_objects.unsqueeze(1).expand(
+            predictions.shape[0], predictions.shape[1], *goal_objects.shape[1:]
         )
-        return self.criterion(predictions[:, :, -1], goal)
+        predicted_final = predictions[:, :, -1]
+        predicted_proprio = (
+            predicted_final[:, :, self.proprio_node]
+            if self.proprio_node is not None and goal_proprio is not None
+            else None
+        )
+        if goal_proprio is not None:
+            goal_proprio = goal_proprio.unsqueeze(1).expand_as(predicted_proprio)
+        return self.criterion(
+            predicted_final[:, :, : self.num_object_slots],
+            goal_objects,
+            predicted_proprio,
+            goal_proprio,
+        )
 
 
 __all__ = ["CJEPA", "MaskedSlotPredictor", "NodeEmbedder"]

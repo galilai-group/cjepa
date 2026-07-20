@@ -23,14 +23,12 @@ model:
     dim: 128
 
   encoder:
+    name: FrameEncoder
     backbone:
-      name: TimmExtractor
-      model: vit_small_patch14_dinov2.lvd142m
+      name: HuggingFaceDINOv2
+      model: facebook/dinov2-small
       features: [vit_block12, vit_block_keys12]
       frozen: true
-      pretrained: true
-      model_kwargs:
-        dynamic_img_size: true
     output_transform:
       name: networks.two_layer_mlp
       inp_dim: 384

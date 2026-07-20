@@ -11,8 +11,14 @@
 #SBATCH --error=%j.err
 #SBATCH --exclude=bamgpu02,bamgpu07,bamgpu17,bamgpu20
 
+set -euo pipefail
 
-python scripts/extract_slots.py \
-  "~/.stable_worldmodel/pusht_expert_train.h5" \
-  "~/.stable_worldmodel/pusht_expert_train_slots.h5" \
-  --dataset pusht
+PROJECT_DIR="${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+source "$PROJECT_DIR/.venv/bin/activate"
+cd "$PROJECT_DIR"
+
+if (( $# )); then
+    python eval.py "$@"
+else
+    python eval.py policy=cjepa/pusht_m1 --download
+fi

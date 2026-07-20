@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import time
 from pathlib import Path
 
@@ -13,6 +14,8 @@ import torch
 from omegaconf import DictConfig, OmegaConf
 from sklearn.preprocessing import StandardScaler
 from torchvision.transforms import v2
+
+from checkpoint import ensure_planning_checkpoint
 
 
 def image_transform(size):
@@ -32,21 +35,27 @@ def choose_starts(dataset, num_eval, goal_offset, seed):
     )
     episode = dataset.get_col_data(episode_column)
     step = dataset.get_col_data("step_idx")
-    valid = []
-    for episode_id in np.unique(episode):
-        episode_steps = step[episode == episode_id]
-        last_start = int(episode_steps.max()) - goal_offset
-        candidates = episode_steps[episode_steps <= last_start]
-        valid.extend((int(episode_id), int(s)) for s in candidates)
-    if len(valid) < num_eval:
+    _, episode_inverse = np.unique(episode, return_inverse=True)
+    episode_end = np.full(episode_inverse.max() + 1, np.iinfo(step.dtype).min)
+    np.maximum.at(episode_end, episode_inverse, step)
+    valid_rows = np.flatnonzero(step <= episode_end[episode_inverse] - goal_offset)
+
+    # Preserve the legacy evaluator exactly, including its exclusive upper
+    # bound of len(dataset_start) - 1 (which leaves the last valid row out).
+    sampling_population = len(valid_rows) - 1
+    if sampling_population < num_eval:
         raise ValueError(
-            f"Only {len(valid)} valid starts are available; need {num_eval}"
+            f"Only {sampling_population} legacy-sampleable starts are available; "
+            f"need {num_eval}"
         )
-    selected = np.random.default_rng(seed).choice(
-        len(valid), size=num_eval, replace=False
-    )
-    pairs = [valid[index] for index in selected]
-    return [p[0] for p in pairs], [p[1] for p in pairs]
+    selected_rows = valid_rows[
+        np.random.default_rng(seed).choice(
+            sampling_population, size=num_eval, replace=False
+        )
+    ]
+    return episode[selected_rows].astype(int).tolist(), step[selected_rows].astype(
+        int
+    ).tolist()
 
 
 def make_processors(dataset, columns):
@@ -62,6 +71,16 @@ def make_processors(dataset, columns):
 
 @hydra.main(version_base=None, config_path="config", config_name="eval")
 def run(cfg: DictConfig):
+    checkpoint_root = swm.data.utils.get_cache_dir(
+        cfg.dataset.cache_dir, sub_folder="checkpoints"
+    )
+    if cfg.download:
+        ensure_planning_checkpoint(
+            cfg.policy,
+            checkpoint_root,
+            **OmegaConf.to_container(cfg.checkpoint, resolve=True),
+        )
+
     dataset = swm.data.load_dataset(
         cfg.dataset.name,
         cache_dir=cfg.dataset.cache_dir,
@@ -77,9 +96,7 @@ def run(cfg: DictConfig):
 
     model = swm.policy.AutoCostModel(
         cfg.policy,
-        cache_dir=swm.data.utils.get_cache_dir(
-            cfg.dataset.cache_dir, sub_folder="checkpoints"
-        ),
+        cache_dir=checkpoint_root,
     )
     device = torch.device(cfg.device)
     model = model.to(device).eval().requires_grad_(False)
@@ -120,5 +137,16 @@ def run(cfg: DictConfig):
     world.close()
 
 
-if __name__ == "__main__":
+def main():
+    """Accept the convenient bare --download flag before Hydra parses argv."""
+    if "--download" in sys.argv:
+        index = sys.argv.index("--download")
+        if not any(argument.startswith("download=") for argument in sys.argv[1:]):
+            sys.argv[index] = "download=true"
+        else:
+            sys.argv.pop(index)
     run()
+
+
+if __name__ == "__main__":
+    main()
