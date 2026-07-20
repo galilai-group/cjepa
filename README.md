@@ -182,7 +182,11 @@ tensor allocator recycles the same memory address.
 Evaluation starts use the legacy evaluator's row filtering and seeded sampling,
 including its exclusive `len(valid_starts) - 1` upper bound. With the same
 dataset ordering and seed, evaluation therefore starts from the same episodes
-and steps as the old repository.
+and steps as the old repository. Evaluation also preserves the old
+end-exclusive goal chunk (`goal_offset=25` selects `start + 24`) and its
+synchronized multi-environment MPC loop. Finished environments remain in the
+planning batch so that later CEM calls consume random samples in the same order
+as stable-worldmodel commit `221ac82`.
 
 All planning settings are in `config/eval.yaml`; there are no values embedded
 in `eval.py`. For a quick check:

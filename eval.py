@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import time
+from collections import deque
 from pathlib import Path
 
 import hydra
@@ -16,6 +17,42 @@ from sklearn.preprocessing import StandardScaler
 from torchvision.transforms import v2
 
 from checkpoint import ensure_planning_checkpoint
+
+
+class LegacyWorldModelPolicy(swm.policy.WorldModelPolicy):
+    """Keep the synchronized MPC loop used by stable-worldmodel 221ac82."""
+
+    def set_env(self, env):
+        self.env = env
+        self.solver.configure(
+            action_space=env.action_space,
+            n_envs=env.num_envs,
+            config=self.cfg,
+        )
+        self._legacy_action_buffer = deque(maxlen=self.flatten_receding_horizon)
+        self._next_init = None
+
+    def get_action(self, info_dict, **kwargs):
+        del kwargs
+        info_dict = self._prepare_info(info_dict)
+        if not self._legacy_action_buffer:
+            outputs = self.solver(info_dict, init_action=self._next_init)
+            actions = outputs["actions"]
+            plan = actions[:, : self.cfg.receding_horizon]
+            rest = actions[:, self.cfg.receding_horizon :]
+            self._next_init = rest if self.cfg.warm_start else None
+            plan = plan.reshape(
+                self.env.num_envs,
+                self.flatten_receding_horizon,
+                -1,
+            )
+            self._legacy_action_buffer.extend(plan.transpose(0, 1))
+
+        action = self._legacy_action_buffer.popleft()
+        action = action.reshape(*self.env.action_space.shape).float().numpy()
+        if "action" in self.process:
+            action = self.process["action"].inverse_transform(action)
+        return action
 
 
 def image_transform(size):
@@ -101,7 +138,7 @@ def run(cfg: DictConfig):
     device = torch.device(cfg.device)
     model = model.to(device).eval().requires_grad_(False)
     solver = hydra.utils.instantiate(cfg.solver, model=model, device=device)
-    policy = swm.policy.WorldModelPolicy(
+    policy = LegacyWorldModelPolicy(
         solver=solver,
         config=swm.PlanConfig(**cfg.plan),
         process=processors,
@@ -124,7 +161,9 @@ def run(cfg: DictConfig):
         dataset=dataset,
         episodes_idx=episodes,
         start_steps=starts,
-        goal_offset=cfg.eval.goal_offset,
+        # stable-worldmodel 221ac82 used an end-exclusive chunk ending at
+        # start + goal_offset, so its actual goal was goal_offset - 1.
+        goal_offset=cfg.eval.goal_offset - 1,
         eval_budget=cfg.eval.eval_budget,
         callables=OmegaConf.to_container(cfg.eval.callables, resolve=True),
         video=output if cfg.eval.video else None,
